@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 
+from dcc_mcp_roblox_studio.__version__ import __version__
 from dcc_mcp_roblox_studio.server import RobloxStudioMcpServer, handle_mcp_message
 
 
@@ -23,7 +24,7 @@ class FakeBridge:
 def test_server_composition_root_uses_core_bridge() -> None:
     server = RobloxStudioMcpServer()
     assert server.server_name == "dcc-mcp-roblox-studio"
-    assert server.version == "0.1.0"
+    assert server.version == __version__
 
 
 def test_initialize_and_tools_list(capsys) -> None:
