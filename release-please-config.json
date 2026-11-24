@@ -19,6 +19,14 @@
         {
           "type": "generic",
           "path": "src/dcc_mcp_roblox_studio/__version__.py"
+        },
+        {
+          "type": "generic",
+          "path": "plugin/RobloxStudioDccMcpPlugin.luau"
+        },
+        {
+          "type": "generic",
+          "path": "plugin/RobloxStudioDccMcpPlugin.rbxmx"
         }
       ]
     }
