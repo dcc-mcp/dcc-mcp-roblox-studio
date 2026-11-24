@@ -5,7 +5,7 @@ local HttpService = game:GetService("HttpService")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 
 local BRIDGE_URL = "ws://127.0.0.1:9001"
-local PLUGIN_VERSION = "0.1.0" -- x-release-please-version
+local PLUGIN_VERSION = "0.1.1" -- x-release-please-version
 
 local toolbar = plugin:CreateToolbar("DCC-MCP")
 local toggleButton = toolbar:CreateButton(
