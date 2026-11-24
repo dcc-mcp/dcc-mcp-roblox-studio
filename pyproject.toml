@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Games/Entertainment",
 ]
 dependencies = [
-    "dcc-mcp-core>=0.20.53,<0.21.0",
+    "dcc-mcp-core>=0.20.54,<0.21.0",
     "websockets>=12,<16",
 ]
 

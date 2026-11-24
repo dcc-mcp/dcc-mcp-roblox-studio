@@ -10,7 +10,7 @@ typed Studio API operations and groups script edits in one Studio undo record.
 ## Install
 
 The package will be published as `dcc-mcp-roblox-studio` after the first
-release-please release is merged. It requires `dcc-mcp-core>=0.20.53,<0.21.0`.
+release-please release is merged. It requires `dcc-mcp-core>=0.20.54,<0.21.0`.
 
 ```powershell
 python -m pip install dcc-mcp-roblox-studio
