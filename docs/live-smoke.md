@@ -24,7 +24,6 @@
 10. If the official launcher is available, call one `roblox_official__*` tool
     returned by `tools/list` and verify its result through MCP.
 
-The PC8 validation completed this flow through the local WebSocket bridge and
-the stdio MCP server. The screenshot and GIF in the README show only the
-visible Studio host state. They do not claim that an invisible MCP mutation is
-present in the frame.
+For a visible end-to-end result, follow the
+[neon checkpoint workflow](examples/neon-checkpoint.md). It produces a scene
+object that can be inspected and selected in Studio after the MCP calls.
