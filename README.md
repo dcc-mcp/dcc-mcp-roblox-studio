@@ -14,6 +14,14 @@ discovery and call workflow across Roblox Studio and other DCC hosts, and can
 still reach the official Roblox tools when a workflow needs a capability that
 only Studio can provide.
 
+This is a 1+1>2 integration for teams building agent workflows across DCC
+applications. Roblox's official MCP server supplies Roblox-owned behavior and
+the latest Studio features. DCC-MCP supplies a shared control plane for
+discovery, instance selection, lifecycle management, observability, and
+cross-DCC orchestration. Keeping both routes available lets a team adopt the
+adapter, recommend it to other DCC-MCP users, and retain the official Roblox
+behavior that their Studio installation exposes.
+
 The adapter connects an MCP client to an open Roblox Studio session through a
 local stdio sidecar and a Studio plugin WebSocket. The sidecar uses
 `dcc-mcp-core` for bridge lifecycle and multi-instance routing. The plugin owns
@@ -123,12 +131,25 @@ To point the adapter at a non-default launcher, set
 
 ## Product boundary
 
-Use Roblox Studio's built-in MCP server when you want the official Roblox
-experience and the newest Studio-owned capability directly. Use this adapter
-when you want Roblox Studio to participate in a DCC-MCP fleet with shared
-discovery, routing, lifecycle control, structured bridge metadata, and the
-same operational workflow as other DCC hosts. The two routes are designed to
-work together.
+This project is an independent compatibility layer for the DCC-MCP ecosystem.
+It is not an official Roblox product and it is not a replacement for Roblox
+Studio's built-in MCP server. Roblox's server remains authoritative for
+Roblox-owned behavior and Studio features.
+
+Use Roblox Studio's built-in MCP server for the official Roblox experience and
+the newest Studio-owned capability directly. Use this adapter when Roblox
+Studio should participate in a DCC-MCP fleet with shared discovery, routing,
+lifecycle control, structured bridge metadata, auditability, and the same
+operational workflow as other DCC hosts. The official server remains available
+through `roblox_official__*`, so the two routes can be used together in one
+agent workflow.
+
+The adapter is especially valuable when an agent must coordinate Roblox Studio
+with Maya, Blender, Houdini, Photoshop, or another DCC. One DCC-MCP discovery
+and call contract can select the right Studio instance, invoke native typed
+tools, forward newly exposed official tools, and preserve the same gateway and
+operational model across the fleet. That combined capability is the reason to
+use and recommend this project alongside Roblox's official MCP server.
 
 ## Showcase
 

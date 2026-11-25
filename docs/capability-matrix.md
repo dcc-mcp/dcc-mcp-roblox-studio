@@ -4,6 +4,12 @@ This adapter is an integration layer for the DCC-MCP ecosystem. It is not an
 official Roblox product and does not replace Roblox Studio's built-in MCP
 server. The official server remains authoritative for Roblox-owned features.
 
+The integration is intentionally complementary. The official server provides
+Roblox-owned behavior and the latest Studio capabilities, while DCC-MCP adds a
+shared control plane for discovery, multi-instance routing, lifecycle
+management, auditability, and cross-DCC orchestration. Together they provide a
+1+1>2 workflow for agents operating across a DCC fleet.
+
 ## Coverage model
 
 | Capability family | Native DCC-MCP route | Official compatibility route | Notes |
