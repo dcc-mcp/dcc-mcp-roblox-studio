@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/dcc-mcp/dcc-mcp-roblox-studio/compare/v0.1.1...v0.1.2) (2026-11-25)
+
+
+### Features
+
+* connect Roblox Studio to dcc-mcp ([2779a77](https://github.com/dcc-mcp/dcc-mcp-roblox-studio/commit/2779a77a3824c743dfe23a6c3c6d7fc93979ac09))
+
 ## [0.1.1](https://github.com/dcc-mcp/dcc-mcp-roblox-studio/compare/v0.1.0...v0.1.1) (2026-11-24)
 
 
