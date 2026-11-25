@@ -9,18 +9,11 @@ capabilities. This adapter makes those capabilities available through the
 common DCC-MCP control plane, while adding DCC-MCP lifecycle, routing,
 multi-instance metadata, auditability, and cross-DCC workflows.
 
-The combined value is greater than either route alone. Agents can use one
-discovery and call workflow across Roblox Studio and other DCC hosts, and can
-still reach the official Roblox tools when a workflow needs a capability that
-only Studio can provide.
-
-This is a 1+1>2 integration for teams building agent workflows across DCC
-applications. Roblox's official MCP server supplies Roblox-owned behavior and
-the latest Studio features. DCC-MCP supplies a shared control plane for
-discovery, instance selection, lifecycle management, observability, and
-cross-DCC orchestration. Keeping both routes available lets a team adopt the
-adapter, recommend it to other DCC-MCP users, and retain the official Roblox
-behavior that their Studio installation exposes.
+Use this adapter when Roblox Studio needs to participate in the same agent
+workflow as Maya, Blender, Houdini, or another DCC. The adapter provides shared
+discovery, instance selection, lifecycle management, and cross-DCC routing.
+The official Roblox MCP server remains available through the compatibility
+namespace when a workflow needs a Studio-owned capability.
 
 The adapter connects an MCP client to an open Roblox Studio session through a
 local stdio sidecar and a Studio plugin WebSocket. The sidecar uses
@@ -37,7 +30,7 @@ Open Cloud, and Studio-side playtest automation.
 ## Install
 
 The package is published on PyPI as `dcc-mcp-roblox-studio`. It requires
-`dcc-mcp-core>=0.20.55,<0.21.0`.
+`dcc-mcp-core>=0.20.54,<0.21.0`.
 
 ```powershell
 python -m pip install dcc-mcp-roblox-studio
@@ -151,13 +144,21 @@ tools, forward newly exposed official tools, and preserve the same gateway and
 operational model across the fleet. That combined capability is the reason to
 use and recommend this project alongside Roblox's official MCP server.
 
-## Showcase
+## Real example
 
-The repository keeps real PC8 captures of the Studio startup and open-place
-states after the plugin package was installed. They document the host-side
-installation result. The MCP evidence is protocol-level and is reproduced by
-the live smoke commands below, so a Studio screenshot is never treated as
-proof of a call that is not visible in the frame.
+The [neon checkpoint workflow](docs/examples/neon-checkpoint.md) creates a
+visible, undoable scene change through typed MCP calls. It shows the complete
+loop from Studio discovery to inspection, selection, undo, and save.
+
+Use the workflow as a first smoke test after installation. It leaves a clear
+object in the place, so the result is easy to review in Studio and useful for a
+real showcase capture.
+
+## Installation evidence
+
+The images below document the plugin installation flow. They are supporting
+evidence for setup, while the executable example above demonstrates the
+adapter's value.
 
 ![Roblox Studio DCC-MCP showcase](docs/assets/roblox-studio-showcase.png)
 
@@ -190,7 +191,8 @@ python -m build
 
 See [architecture](docs/architecture.md) and the [live smoke test](docs/live-smoke.md).
 See the [capability matrix](docs/capability-matrix.md) for the native, official,
-and shared DCC-MCP coverage boundaries.
+and shared DCC-MCP coverage boundaries. The [capability roadmap](docs/roadmap.md)
+lists the next safety and workflow improvements.
 
 ## License
 
