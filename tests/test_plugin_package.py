@@ -23,5 +23,10 @@ def test_plugin_source_contains_typed_operations() -> None:
         "roblox.inspect_instance",
         "roblox.script_read",
         "roblox.multi_edit",
+        "roblox.create_instance",
+        "roblox.modify_instance",
+        "roblox.script_grep",
+        "roblox.get_selection",
+        "roblox.start_stop_play",
     ):
         assert method in source

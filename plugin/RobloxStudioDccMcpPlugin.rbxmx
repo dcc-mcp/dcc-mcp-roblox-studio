@@ -18,6 +18,9 @@
 
 local HttpService = game:GetService("HttpService")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
+local Selection = game:GetService("Selection")
+local StudioService = game:GetService("StudioService")
+local LogService = game:GetService("LogService")
 
 local BRIDGE_URL = "ws://127.0.0.1:9001"
 local PLUGIN_VERSION = "0.1.1" -- x-release-please-version
@@ -30,8 +33,21 @@ local toggleButton = toolbar:CreateButton(
 )
 
 local client = nil
+local reconnectEnabled = true
 local heartbeatSequence = 0
 local INSTANCE_ID = HttpService:GenerateGUID(false)
+local consoleLines = {}
+local MAX_CONSOLE_LINES = 512
+
+LogService.MessageOut:Connect(function(message, messageType)
+	table.insert(consoleLines, {
+		message = message,
+		message_type = tostring(messageType),
+	})
+	while #consoleLines > MAX_CONSOLE_LINES do
+		table.remove(consoleLines, 1)
+	end
+end)
 
 local function safeStudioVersion()
 	local ok, value = pcall(function()
@@ -41,9 +57,13 @@ local function safeStudioVersion()
 end
 
 local function send(message)
-	if client and client.ConnectionState == Enum.WebStreamClientState.Open then
-		client:Send(HttpService:JSONEncode(message))
+	if not client then
+		return false
 	end
+	local ok = pcall(function()
+		client:Send(HttpService:JSONEncode(message))
+	end)
+	return ok
 end
 
 local function instanceAtPath(path)
@@ -77,14 +97,119 @@ local function instanceSummary(instance)
 	}
 end
 
+local function serializeValue(value)
+	local valueType = typeof(value)
+	if valueType == "Vector2" or valueType == "Vector3" then
+		return {type = valueType, x = value.X, y = value.Y, z = valueType == "Vector3" and value.Z or nil}
+	elseif valueType == "Color3" then
+		return {type = "Color3", r = value.R, g = value.G, b = value.B}
+	elseif valueType == "CFrame" then
+		return {type = "CFrame", components = {value:GetComponents()}}
+	elseif valueType == "UDim" then
+		return {type = "UDim", scale = value.Scale, offset = value.Offset}
+	elseif valueType == "UDim2" then
+		return {
+			type = "UDim2",
+			x = {scale = value.X.Scale, offset = value.X.Offset},
+			y = {scale = value.Y.Scale, offset = value.Y.Offset},
+		}
+	elseif valueType == "EnumItem" then
+		return {type = "EnumItem", enum = tostring(value.EnumType), name = value.Name}
+	elseif valueType == "BrickColor" then
+		return {type = "BrickColor", name = value.Name, number = value.Number}
+	elseif valueType == "Instance" then
+		return {type = "Instance", path = value:GetFullName()}
+	elseif valueType == "string" or valueType == "number" or valueType == "boolean" or value == nil then
+		return value
+	end
+	return tostring(value)
+end
+
+local function decodeValue(value)
+	if type(value) ~= "table" then
+		return value
+	end
+	if value.type == "Vector2" then
+		return Vector2.new(value.x or 0, value.y or 0)
+	elseif value.type == "Vector3" then
+		return Vector3.new(value.x or 0, value.y or 0, value.z or 0)
+	elseif value.type == "Color3" then
+		return Color3.new(value.r or 0, value.g or 0, value.b or 0)
+	elseif value.type == "UDim" then
+		return UDim.new(value.scale or 0, value.offset or 0)
+	elseif value.type == "UDim2" then
+		return UDim2.new(
+			(value.x and value.x.scale) or 0,
+			(value.x and value.x.offset) or 0,
+			(value.y and value.y.scale) or 0,
+			(value.y and value.y.offset) or 0
+		)
+	elseif value.type == "BrickColor" then
+		return BrickColor.new(value.name or "White")
+	elseif value.type == "Instance" then
+		return instanceAtPath(value.path)
+	end
+	return value
+end
+
+local function setProperties(instance, properties)
+	for name, value in pairs(properties or {}) do
+		local decoded = decodeValue(value)
+		local ok, failure = pcall(function()
+			instance[name] = decoded
+		end)
+		if not ok then
+			error("could not set property " .. tostring(name) .. ": " .. tostring(failure))
+		end
+	end
+	for name, value in pairs((properties and properties.attributes) or {}) do
+		instance:SetAttribute(name, decodeValue(value))
+	end
+end
+
+local function setAttributes(instance, attributes)
+	for name, value in pairs(attributes or {}) do
+		instance:SetAttribute(name, decodeValue(value))
+	end
+end
+
+local function withRecording(displayName, callback)
+	local recording = ChangeHistoryService:TryBeginRecording("dcc_mcp_operation", displayName)
+	if not recording then
+		error("could not start a Studio change recording")
+	end
+	local ok, result = pcall(callback)
+	if ok then
+		ChangeHistoryService:FinishRecording(recording, Enum.FinishRecordingOperation.Commit)
+		return result
+	end
+	ChangeHistoryService:FinishRecording(recording, Enum.FinishRecordingOperation.Cancel)
+	error(result)
+end
+
+local function collectScripts(root)
+	local scripts = {}
+	if root:IsA("LuaSourceContainer") then
+		table.insert(scripts, root)
+	end
+	for _, instance in ipairs(root:GetDescendants()) do
+		if instance:IsA("LuaSourceContainer") then
+			table.insert(scripts, instance)
+		end
+	end
+	return scripts
+end
+
 local function searchGameTree(params)
 	local query = string.lower(params.query or "")
 	local root = instanceAtPath(params.root or "game") or game
 	local maxResults = math.clamp(params.max_results or 50, 1, 500)
+	local className = string.lower(params.class_name or "")
 	local results = {}
 	for _, instance in ipairs(root:GetDescendants()) do
 		local haystack = string.lower(instance.Name .. " " .. instance.ClassName .. " " .. instance:GetFullName())
-		if query == "" or string.find(haystack, query, 1, true) then
+		if (query == "" or string.find(haystack, query, 1, true))
+			and (className == "" or string.lower(instance.ClassName) == className) then
 			table.insert(results, {
 				name = instance.Name,
 				class_name = instance.ClassName,
@@ -97,6 +222,50 @@ local function searchGameTree(params)
 	end
 	return {results = results, count = #results}
 
+end
+
+local function searchScripts(params)
+	local query = string.lower(params.query or "")
+	local maxResults = math.clamp(params.max_results or 10, 1, 50)
+	local results = {}
+	for _, scriptInstance in ipairs(collectScripts(game)) do
+		local haystack = string.lower(scriptInstance.Name .. " " .. scriptInstance.ClassName .. " " .. scriptInstance:GetFullName())
+		if string.find(haystack, query, 1, true) then
+			table.insert(results, {
+				name = scriptInstance.Name,
+				class_name = scriptInstance.ClassName,
+				path = scriptInstance:GetFullName(),
+			})
+			if #results >= maxResults then
+				break
+			end
+		end
+	end
+	return {results = results, count = #results}
+end
+
+local function grepScripts(params)
+	local pattern = params.pattern or ""
+	local maxResults = math.clamp(params.max_results or 50, 1, 50)
+	local results = {}
+	for _, scriptInstance in ipairs(collectScripts(game)) do
+		local source = scriptInstance.Source
+		local lineNumber = 0
+		for line in string.gmatch(source .. "\n", "(.-)\n") do
+			lineNumber += 1
+			if string.find(line, pattern, 1, true) then
+				table.insert(results, {
+					path = scriptInstance:GetFullName(),
+					line = lineNumber,
+					content = line,
+				})
+				if #results >= maxResults then
+					return {results = results, count = #results}
+				end
+			end
+		end
+	end
+	return {results = results, count = #results}
 end
 
 local function readScript(params)
@@ -152,6 +321,62 @@ local function applyMultiEdit(params)
 	return {changed = changed, count = #changed}
 end
 
+local function createInstance(params)
+	return withRecording("DCC-MCP Create Instance", function()
+		local className = params.class_name
+		local parent = instanceAtPath(params.parent or "game.Workspace")
+		if not parent then
+			error("parent not found: " .. tostring(params.parent))
+		end
+		local instance = Instance.new(className)
+		instance.Name = params.name or className
+		setProperties(instance, params.properties)
+		setAttributes(instance, params.attributes)
+		instance.Parent = parent
+		return instanceSummary(instance)
+	end)
+end
+
+local function modifyInstance(params)
+	return withRecording("DCC-MCP Modify Instance", function()
+		local instance = instanceAtPath(params.path)
+		if not instance then
+			error("instance not found: " .. tostring(params.path))
+		end
+		setProperties(instance, params.properties)
+		setAttributes(instance, params.attributes)
+		return instanceSummary(instance)
+	end)
+end
+
+local function cloneInstance(params)
+	return withRecording("DCC-MCP Clone Instance", function()
+		local source = instanceAtPath(params.path)
+		local parent = instanceAtPath(params.parent)
+		if not source or not parent then
+			error("source or parent not found")
+		end
+		local clone = source:Clone()
+		if params.name then
+			clone.Name = params.name
+		end
+		clone.Parent = parent
+		return instanceSummary(clone)
+	end)
+end
+
+local function moveInstance(params)
+	return withRecording("DCC-MCP Move Instance", function()
+		local instance = instanceAtPath(params.path)
+		local parent = instanceAtPath(params.parent)
+		if not instance or not parent then
+			error("instance or parent not found")
+		end
+		instance.Parent = parent
+		return {path = instance:GetFullName()}
+	end)
+end
+
 local handlers = {
 	["roblox.get_studio_state"] = function()
 		return {
@@ -173,6 +398,84 @@ local handlers = {
 	end,
 	["roblox.script_read"] = readScript,
 	["roblox.multi_edit"] = applyMultiEdit,
+	["roblox.script_search"] = searchScripts,
+	["roblox.script_grep"] = grepScripts,
+	["roblox.create_instance"] = createInstance,
+	["roblox.modify_instance"] = modifyInstance,
+	["roblox.delete_instance"] = function(params)
+		return withRecording("DCC-MCP Delete Instance", function()
+			local instance = instanceAtPath(params.path)
+			if not instance or instance == game then
+				error("cannot delete instance: " .. tostring(params.path))
+			end
+			local path = instance:GetFullName()
+			instance:Destroy()
+			return {deleted = path}
+		end)
+	end,
+	["roblox.clone_instance"] = cloneInstance,
+	["roblox.move_instance"] = moveInstance,
+	["roblox.get_selection"] = function()
+		local paths = {}
+		for _, instance in ipairs(Selection:Get()) do
+			table.insert(paths, instance:GetFullName())
+		end
+		return {paths = paths, count = #paths}
+	end,
+	["roblox.set_selection"] = function(params)
+		local instances = {}
+		for _, path in ipairs(params.paths or {}) do
+			local instance = instanceAtPath(path)
+			if not instance then
+				error("selection path not found: " .. tostring(path))
+			end
+			table.insert(instances, instance)
+		end
+		Selection:Set(instances)
+		return {paths = params.paths or {}, count = #instances}
+	end,
+	["roblox.insert_service"] = function(params)
+		return withRecording("DCC-MCP Insert Service", function()
+			local service = game:GetService(params.class_name)
+			return {class_name = service.ClassName, path = service:GetFullName()}
+		end)
+	end,
+	["roblox.undo"] = function()
+		ChangeHistoryService:Undo()
+		return {success = true}
+	end,
+	["roblox.redo"] = function()
+		ChangeHistoryService:Redo()
+		return {success = true}
+	end,
+	["roblox.get_console_output"] = function(params)
+		local maxLines = math.clamp(params.max_lines or 50, 1, MAX_CONSOLE_LINES)
+		local startIndex = math.max(1, #consoleLines - maxLines + 1)
+		local lines = {}
+		for index = startIndex, #consoleLines do
+			table.insert(lines, consoleLines[index])
+		end
+		return {lines = lines, count = #lines}
+	end,
+	["roblox.start_stop_play"] = function(params)
+		if params.action == "start" then
+			StudioService:RequestPlay()
+		elseif params.action == "stop" then
+			StudioService:RequestStop()
+		else
+			error("action must be start or stop")
+		end
+		return {action = params.action}
+	end,
+	["roblox.save_place"] = function(params)
+		local ok, failure = pcall(function()
+			StudioService:SavePlaceAsync()
+		end)
+		if not ok then
+			error(tostring(failure))
+		end
+		return {saved = true, note = params.note}
+	end,
 }
 
 local function handleMessage(raw)
@@ -203,7 +506,10 @@ local function handleMessage(raw)
 	end
 end
 
-local function connect()
+local connect
+
+connect = function()
+	reconnectEnabled = true
 	if client then
 		client:Close()
 		client = nil
@@ -232,6 +538,21 @@ local function connect()
 				inspect_instance = true,
 				script_read = true,
 				multi_edit = true,
+				script_search = true,
+				script_grep = true,
+				create_instance = true,
+				modify_instance = true,
+				delete_instance = true,
+				clone_instance = true,
+				move_instance = true,
+				get_selection = true,
+				set_selection = true,
+				insert_service = true,
+				undo = true,
+				redo = true,
+				get_console_output = true,
+				start_stop_play = true,
+				save_place = true,
 			},
 		})
 		send({type = "ready", ready = true, state = "ready"})
@@ -242,6 +563,11 @@ local function connect()
 	end)
 	client.Closed:Connect(function()
 		client = nil
+		task.delay(2, function()
+			if reconnectEnabled and not client then
+				connect()
+			end
+		end)
 	end)
 
 	task.spawn(function()
@@ -258,6 +584,7 @@ end
 
 toggleButton.Click:Connect(function()
 	if client then
+		reconnectEnabled = false
 		client:Close()
 		client = nil
 	else
