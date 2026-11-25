@@ -37,7 +37,12 @@ def test_initialize_and_tools_list(capsys) -> None:
     asyncio.run(handle_mcp_message(bridge, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}))
     listed = json.loads(capsys.readouterr().out)
     names = {tool["name"] for tool in listed["result"]["tools"]}
-    assert {"roblox_list_studios", "roblox_multi_edit"}.issubset(names)
+    assert {
+        "roblox_list_studios",
+        "roblox_multi_edit",
+        "roblox_create_instance",
+        "roblox_script_grep",
+    }.issubset(names)
 
 
 def test_tools_call_maps_studio_id_to_core_instance_id(capsys) -> None:

@@ -2,15 +2,34 @@
 
 Roblox Studio adapter for the DCC-MCP ecosystem.
 
+This project is an integration layer for Roblox Studio. It is not an official
+Roblox product and it is not a replacement for Roblox Studio's built-in MCP
+server. The official server remains the source of truth for Roblox-owned
+capabilities. This adapter makes those capabilities available through the
+common DCC-MCP control plane, while adding DCC-MCP lifecycle, routing,
+multi-instance metadata, auditability, and cross-DCC workflows.
+
+The combined value is greater than either route alone. Agents can use one
+discovery and call workflow across Roblox Studio and other DCC hosts, and can
+still reach the official Roblox tools when a workflow needs a capability that
+only Studio can provide.
+
 The adapter connects an MCP client to an open Roblox Studio session through a
 local stdio sidecar and a Studio plugin WebSocket. The sidecar uses
 `dcc-mcp-core` for bridge lifecycle and multi-instance routing. The plugin owns
-typed Studio API operations and groups script edits in one Studio undo record.
+typed Studio API operations and groups writes in one Studio undo record.
+
+When enabled, the adapter also discovers Roblox's installed `StudioMCP`
+launcher and exposes its current tool list under the
+`roblox_official__*` namespace. Calls are forwarded to the official server,
+including rich content such as screenshots. This compatibility route avoids a
+second implementation of Roblox-only services such as asset generation,
+Open Cloud, and Studio-side playtest automation.
 
 ## Install
 
-The package will be published as `dcc-mcp-roblox-studio` after the first
-release-please release is merged. It requires `dcc-mcp-core>=0.20.54,<0.21.0`.
+The package is published on PyPI as `dcc-mcp-roblox-studio`. It requires
+`dcc-mcp-core>=0.20.55,<0.21.0`.
 
 ```powershell
 python -m pip install dcc-mcp-roblox-studio
@@ -33,10 +52,10 @@ python plugin/build_plugin.py
 Copy `plugin/RobloxStudioDccMcpPlugin.rbxmx` into the Roblox Studio local
 Plugins folder, restart Studio, and enable HTTP requests in Studio.
 
-Start the adapter:
+Start the adapter with official compatibility enabled:
 
 ```powershell
-dcc-mcp-roblox-studio --ws-port 9001
+dcc-mcp-roblox-studio --ws-port 9001 --enable-official-mcp
 ```
 
 MCP client configuration:
@@ -46,16 +65,17 @@ MCP client configuration:
   "mcpServers": {
     "dcc-mcp-roblox-studio": {
       "command": "dcc-mcp-roblox-studio",
-      "args": ["--ws-port", "9001"]
+      "args": ["--ws-port", "9001", "--enable-official-mcp"]
     }
   }
 }
 ```
 
 Call `roblox_list_studios` first when several Studio sessions are running.
-Pass its `studio_id` to subsequent tools.
+Pass its `studio_id` to subsequent native tools. Official compatibility tools
+use the `studio_id` contract defined by the installed official server.
 
-## Tools
+## Native DCC-MCP tools
 
 - `roblox_list_studios`
 - `roblox_get_studio_state`
@@ -63,11 +83,66 @@ Pass its `studio_id` to subsequent tools.
 - `roblox_inspect_instance`
 - `roblox_script_read`
 - `roblox_multi_edit`
+- `roblox_script_search`
+- `roblox_script_grep`
+- `roblox_create_instance`
+- `roblox_modify_instance`
+- `roblox_delete_instance`
+- `roblox_clone_instance`
+- `roblox_move_instance`
+- `roblox_get_selection`
+- `roblox_set_selection`
+- `roblox_insert_service`
+- `roblox_undo`
+- `roblox_redo`
+- `roblox_get_console_output`
+- `roblox_start_stop_play`
+- `roblox_save_place`
 
-The initial tool surface keeps host operations typed and bounded. Arbitrary
-Luau execution and native UI input are outside this adapter's default scope.
+All native write operations use typed parameters and an undo recording where
+Roblox Studio exposes `ChangeHistoryService`. Arbitrary Luau execution and
+native UI input stay on the official compatibility route or the DCC-MCP
+`ui-control` skill when those capabilities are required.
 
-## Official Roblox MCP route
+## Official capability compatibility
+
+The official server changes with Roblox Studio. With `--enable-official-mcp`,
+the adapter queries `tools/list` from the installed `StudioMCP` process and
+surfaces the current official schemas without hard-coding a stale tool list.
+The exposed names are prefixed with `roblox_official__` so native and official
+routes remain unambiguous.
+
+The compatibility route covers the official categories, including script
+operations, DataModel exploration, Luau execution, asset search and insert,
+AI generation, playtesting, console output, screenshots and video capture,
+player input simulation, documentation and skills, place saving, feedback,
+and Open Cloud calls when the Studio account and permissions allow them.
+
+To point the adapter at a non-default launcher, set
+`DCC_MCP_ROBLOX_OFFICIAL_MCP` or pass `--official-mcp-command`.
+
+## Product boundary
+
+Use Roblox Studio's built-in MCP server when you want the official Roblox
+experience and the newest Studio-owned capability directly. Use this adapter
+when you want Roblox Studio to participate in a DCC-MCP fleet with shared
+discovery, routing, lifecycle control, structured bridge metadata, and the
+same operational workflow as other DCC hosts. The two routes are designed to
+work together.
+
+## Showcase
+
+The repository keeps real PC8 captures of the Studio startup and open-place
+states after the plugin package was installed. They document the host-side
+installation result. The MCP evidence is protocol-level and is reproduced by
+the live smoke commands below, so a Studio screenshot is never treated as
+proof of a call that is not visible in the frame.
+
+![Roblox Studio DCC-MCP showcase](docs/assets/roblox-studio-showcase.png)
+
+![Roblox Studio installation flow](docs/assets/roblox-studio-showcase.gif)
+
+## Standalone official route
 
 Roblox Studio also provides an official local stdio MCP server. The DCC-MCP
 translator can expose it through the gateway:
@@ -79,9 +154,9 @@ dcc-mcp-server translate `
   --expose-streamable-http true
 ```
 
-Use the official route when its built-in tools are sufficient. Use this
-adapter when DCC-MCP should own plugin lifecycle, typed bridge policy, event
-handling, or multi-instance metadata.
+Use the adapter's compatibility mode when the official server should be part
+of the same Roblox adapter process. Use the standalone translator when the
+official server should have its own gateway registration.
 
 ## Development
 
@@ -93,6 +168,8 @@ python -m build
 ```
 
 See [architecture](docs/architecture.md) and the [live smoke test](docs/live-smoke.md).
+See the [capability matrix](docs/capability-matrix.md) for the native, official,
+and shared DCC-MCP coverage boundaries.
 
 ## License
 
