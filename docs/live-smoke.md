@@ -19,9 +19,14 @@
 7. Use `roblox_script_read` on a test script.
 8. Use `roblox_create_instance` on a disposable place, then verify the result
    with `roblox_inspect_instance` and `roblox_search_game_tree`.
-9. Use `roblox_multi_edit` on a disposable place and confirm one undo entry is
+9. Call `roblox_get_class_schema` for `Part`, then use
+   `roblox_scene_transaction` to create and modify disposable objects in one
+   undo entry.
+10. Use `roblox_multi_edit` on a disposable place and confirm one undo entry is
    created.
-10. If the official launcher is available, call one `roblox_official__*` tool
+11. Call `search`, `describe`, `load_skill`, and `call` for
+   `roblox-scene-authoring` and verify the same typed tool is reachable.
+12. If the official launcher is available, call one `roblox_official__*` tool
     returned by `tools/list` and verify its result through MCP.
 
 For a visible end-to-end result, follow the

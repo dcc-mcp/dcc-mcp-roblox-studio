@@ -112,3 +112,41 @@ object again. Save the place only after reviewing the result.
 
 This sequence gives a useful first screenshot because it shows a concrete
 scene object, its selected state, and a change that came from the MCP workflow.
+
+## Batch variant
+
+When the create and follow-up edit belong to one reviewable change, send them
+as one transaction. The plugin validates the existing paths first and records
+the batch as one undo step.
+
+```json
+{
+  "name": "roblox_scene_transaction",
+  "arguments": {
+    "studio_id": "studio-1",
+    "operations": [
+      {
+        "type": "create",
+        "class_name": "Part",
+        "parent": "game.Workspace",
+        "name": "DccMcpBatchCheckpoint",
+        "properties": {
+          "Anchored": true,
+          "Size": {"type": "Vector3", "x": 8, "y": 1, "z": 8}
+        }
+      },
+      {
+        "type": "modify",
+        "path": "game.Workspace.DccMcpCheckpoint",
+        "properties": {
+          "Transparency": 0.25
+        }
+      }
+    ]
+  }
+}
+```
+
+The paths referenced by `modify`, `delete`, `clone`, and `move` must exist
+before the transaction begins. Create results can still be inspected after the
+transaction completes.

@@ -17,12 +17,13 @@ management, auditability, and cross-DCC orchestration.
 | DataModel search and inspection | `roblox_search_game_tree`, `roblox_inspect_instance` | `roblox_official__search_game_tree`, `roblox_official__inspect_instance` | Native route is optimized for common agent workflows |
 | Script read and source search | `roblox_script_read`, `roblox_script_search`, `roblox_script_grep` | `roblox_official__script_read`, `roblox_official__script_search`, `roblox_official__script_grep` | Native writes use Studio undo recordings |
 | Script editing | `roblox_multi_edit` | `roblox_official__multi_edit` | Both routes preserve the official schema where available |
-| Instance and service editing | Create, modify, clone, move, delete, selection, service insertion | Official tools are forwarded when installed | Native operations use typed values and ChangeHistoryService |
+| Instance and service editing | Create, modify, clone, move, delete, selection, service insertion, class schemas, scene transactions | Official tools are forwarded when installed | Native operations use typed values and ChangeHistoryService |
 | Playtest and console | Native play control and console capture | Official play, console, screenshot, video, and input tools | Official route is preferred for Studio-owned automation |
 | Asset and AI generation | — | Official asset search, insert, upload, material, mesh, avatar, animation, and generation tools | Capability depends on the installed StudioMCP version and account permissions |
 | Luau and Studio skills | — | Official `execute_luau`, `skill`, and `subagent` tools | Kept behind the official namespace to preserve Roblox behavior |
 | Place persistence and feedback | Native `roblox_save_place` | Official save and feedback tools | Studio permissions still apply |
 | Gateway operations | DCC-MCP gateway discovery, REST, MCP, audit, and lifecycle | Available around the adapter process | Shared with other DCC adapters |
+| DCC-MCP Skills | `search`, `describe`, `load_skill`, `call` with `roblox-scene-authoring` | Official `skill` and `subagent` tools are forwarded when installed | Native scene tools remain available for existing clients |
 | Fallback UI control | DCC-MCP `ui-control` skill | Roblox native UI input tools | Use only when a structured tool cannot express the operation |
 
 ## Official tool compatibility
