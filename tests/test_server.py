@@ -6,10 +6,14 @@ import asyncio
 import json
 
 from dcc_mcp_roblox_studio.__version__ import __version__
-from dcc_mcp_roblox_studio.server import RobloxStudioMcpServer, handle_mcp_message
+from dcc_mcp_roblox_studio.audit import OperationAudit
+from dcc_mcp_roblox_studio.server import EventBuffer, RobloxStudioMcpServer, handle_mcp_message
 
 
 class FakeBridge:
+    def __init__(self):
+        self.events = []
+
     def list_sessions(self):
         return [{"instance_id": "studio-1", "ready": True}]
 
@@ -19,6 +23,11 @@ class FakeBridge:
             "target_instance_id": target_instance_id,
             "params": params,
         }
+
+    def drain_events(self, max_events=None):
+        events = self.events if max_events is None else self.events[:max_events]
+        self.events = self.events[len(events) :]
+        return events
 
 
 def test_server_composition_root_uses_core_bridge() -> None:
@@ -170,3 +179,93 @@ def test_skill_call_routes_to_native_tool(capsys) -> None:
     response = json.loads(capsys.readouterr().out)
     payload = json.loads(response["result"]["content"][0]["text"])
     assert payload["class_name"] == "Folder"
+
+
+def test_event_filter_wait_and_audit_are_available(capsys) -> None:
+    bridge = FakeBridge()
+    bridge.events = [
+        {"type": "ready", "instance_id": "studio-1"},
+        {"type": "heartbeat", "instance_id": "studio-1", "sequence": 3},
+    ]
+    audit = OperationAudit()
+    event_buffer = EventBuffer()
+
+    asyncio.run(
+        handle_mcp_message(
+            bridge,
+            {
+                "jsonrpc": "2.0",
+                "id": 9,
+                "method": "tools/call",
+                "params": {
+                    "name": "roblox_bridge_events",
+                    "arguments": {"event_type": "heartbeat", "instance_id": "studio-1"},
+                },
+            },
+            None,
+            audit,
+            event_buffer,
+        )
+    )
+    response = json.loads(capsys.readouterr().out)
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["events"] == [{"type": "heartbeat", "instance_id": "studio-1", "sequence": 3}]
+
+    asyncio.run(
+        handle_mcp_message(
+            bridge,
+            {
+                "jsonrpc": "2.0",
+                "id": 10,
+                "method": "tools/call",
+                "params": {"name": "roblox_wait_for_event", "arguments": {"event_type": "ready"}},
+            },
+            None,
+            audit,
+            event_buffer,
+        )
+    )
+    wait_response = json.loads(capsys.readouterr().out)
+    wait_payload = json.loads(wait_response["result"]["content"][0]["text"])
+    assert wait_payload["matched"] is True
+
+    asyncio.run(
+        handle_mcp_message(
+            bridge,
+            {
+                "jsonrpc": "2.0",
+                "id": 11,
+                "method": "tools/call",
+                "params": {
+                    "name": "roblox_scene_transaction",
+                    "arguments": {"dry_run": True, "operations": [{"type": "create", "class_name": "Part"}]},
+                },
+            },
+            None,
+            audit,
+            event_buffer,
+        )
+    )
+    dry_run_response = json.loads(capsys.readouterr().out)
+    dry_run_payload = json.loads(dry_run_response["result"]["content"][0]["text"])
+    assert dry_run_payload["method"] == "roblox.scene_transaction"
+    assert dry_run_payload["params"]["dry_run"] is True
+
+    asyncio.run(
+        handle_mcp_message(
+            bridge,
+            {
+                "jsonrpc": "2.0",
+                "id": 12,
+                "method": "tools/call",
+                "params": {"name": "roblox_get_audit_log", "arguments": {"limit": 10}},
+            },
+            None,
+            audit,
+            event_buffer,
+        )
+    )
+    audit_response = json.loads(capsys.readouterr().out)
+    audit_payload = json.loads(audit_response["result"]["content"][0]["text"])
+    assert audit_payload["entries"]
+    assert any(entry["tool"] == "roblox_scene_transaction" for entry in audit_payload["entries"])

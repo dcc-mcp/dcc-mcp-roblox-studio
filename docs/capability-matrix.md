@@ -23,6 +23,7 @@ management, auditability, and cross-DCC orchestration.
 | Luau and Studio skills | — | Official `execute_luau`, `skill`, and `subagent` tools | Kept behind the official namespace to preserve Roblox behavior |
 | Place persistence and feedback | Native `roblox_save_place` | Official save and feedback tools | Studio permissions still apply |
 | Gateway operations | DCC-MCP gateway discovery, REST, MCP, audit, and lifecycle | Available around the adapter process | Shared with other DCC adapters |
+| Event and operation observability | Filtered `roblox_bridge_events`, `roblox_wait_for_event`, `roblox_get_audit_log`, stable operation IDs, and dry-run validation | Official diagnostics remain available when installed | Audit parameters redact script source and content |
 | DCC-MCP Skills | `search`, `describe`, `load_skill`, `call` with `roblox-scene-authoring` | Official `skill` and `subagent` tools are forwarded when installed | Native scene tools remain available for existing clients |
 | Fallback UI control | DCC-MCP `ui-control` skill | Roblox native UI input tools | Use only when a structured tool cannot express the operation |
 

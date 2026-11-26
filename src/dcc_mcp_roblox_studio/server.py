@@ -11,11 +11,65 @@ from typing import Any, Dict, List, Optional
 from dcc_mcp_core import DccBridge
 
 from dcc_mcp_roblox_studio.__version__ import __version__
+from dcc_mcp_roblox_studio.audit import OperationAudit
 from dcc_mcp_roblox_studio.official_mcp import OfficialMcpError, OfficialMcpProxy
 from dcc_mcp_roblox_studio.schemas import get_class_schema
 from dcc_mcp_roblox_studio.skill_catalog import describe_skill, search_skills
 
 SERVER_NAME = "dcc-mcp-roblox-studio"
+
+
+class RobloxDccBridge(DccBridge):
+    """Keep Roblox session and lifecycle metadata across core API versions."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._roblox_sessions: Dict[str, Dict[str, Any]] = {}
+        self._roblox_events: List[Dict[str, Any]] = []
+
+    async def _handle_hello(self, message: Dict[str, Any], websocket: Any) -> None:
+        instance_id = str(message.get("instance_id") or message.get("peer_id") or "active")
+        self._roblox_sessions[instance_id] = {
+            "instance_id": instance_id,
+            "studio_id": instance_id,
+            "client": message.get("client"),
+            "version": message.get("version"),
+            "host_name": message.get("host_name"),
+            "host_version": message.get("host_version"),
+            "document": message.get("document"),
+            "project": message.get("project"),
+            "capabilities": message.get("capabilities", {}),
+            "connected": True,
+        }
+        await super()._handle_hello(message, websocket)
+
+    def _handle_event(self, message: Dict[str, Any]) -> None:
+        data = message.get("data")
+        event = dict(data) if isinstance(data, dict) else {"data": data}
+        event.setdefault("event_type", message.get("event", "unknown"))
+        event.setdefault("instance_id", message.get("instance_id"))
+        self._roblox_events.append(event)
+
+    def list_sessions(self) -> List[Dict[str, Any]]:
+        """Return active sessions for both old and new dcc-mcp-core releases."""
+        if self._roblox_sessions:
+            return list(self._roblox_sessions.values())
+        return (
+            [
+                {
+                    "studio_id": "active",
+                    "instance_id": "active",
+                    "connected": self.is_connected(),
+                }
+            ]
+            if self.is_connected()
+            else []
+        )
+
+    def drain_events(self) -> List[Dict[str, Any]]:
+        events = self._roblox_events
+        self._roblox_events = []
+        return events
 
 
 def _tool(
@@ -49,6 +103,10 @@ def _tool(
 _TARGET_PROPERTIES = {
     "studio_id": {"type": "string", "description": "Target Studio instance ID."},
     "instance_id": {"type": "string", "description": "Alias for studio_id."},
+}
+
+_DRY_RUN_PROPERTY = {
+    "dry_run": {"type": "boolean", "default": False, "description": "Validate without changing Studio."}
 }
 
 
@@ -164,6 +222,7 @@ TOOLS: List[Dict[str, Any]] = [
             "name": {"type": "string"},
             "properties": {"type": "object"},
             "attributes": {"type": "object"},
+            **_DRY_RUN_PROPERTY,
             **_TARGET_PROPERTIES,
         },
         required=["class_name"],
@@ -178,6 +237,7 @@ TOOLS: List[Dict[str, Any]] = [
             "path": {"type": "string"},
             "properties": {"type": "object"},
             "attributes": {"type": "object"},
+            **_DRY_RUN_PROPERTY,
             **_TARGET_PROPERTIES,
         },
         required=["path"],
@@ -213,6 +273,7 @@ TOOLS: List[Dict[str, Any]] = [
                         "name": {"type": "string"},
                         "properties": {"type": "object"},
                         "attributes": {"type": "object"},
+                        "dry_run": {"type": "boolean", "default": False},
                     },
                     "required": ["type"],
                 },
@@ -227,7 +288,7 @@ TOOLS: List[Dict[str, Any]] = [
     _tool(
         "roblox_delete_instance",
         "Delete an Instance with one ChangeHistoryService recording.",
-        {"path": {"type": "string"}, **_TARGET_PROPERTIES},
+        {"path": {"type": "string"}, **_DRY_RUN_PROPERTY, **_TARGET_PROPERTIES},
         required=["path"],
         method="roblox.delete_instance",
         read_only=False,
@@ -236,7 +297,13 @@ TOOLS: List[Dict[str, Any]] = [
     _tool(
         "roblox_clone_instance",
         "Clone an Instance into a new parent with one undoable operation.",
-        {"path": {"type": "string"}, "parent": {"type": "string"}, "name": {"type": "string"}, **_TARGET_PROPERTIES},
+        {
+            "path": {"type": "string"},
+            "parent": {"type": "string"},
+            "name": {"type": "string"},
+            **_DRY_RUN_PROPERTY,
+            **_TARGET_PROPERTIES,
+        },
         required=["path", "parent"],
         method="roblox.clone_instance",
         read_only=False,
@@ -245,7 +312,7 @@ TOOLS: List[Dict[str, Any]] = [
     _tool(
         "roblox_move_instance",
         "Move an Instance to a new parent with one undoable operation.",
-        {"path": {"type": "string"}, "parent": {"type": "string"}, **_TARGET_PROPERTIES},
+        {"path": {"type": "string"}, "parent": {"type": "string"}, **_DRY_RUN_PROPERTY, **_TARGET_PROPERTIES},
         required=["path", "parent"],
         method="roblox.move_instance",
         read_only=False,
@@ -319,8 +386,31 @@ TOOLS: List[Dict[str, Any]] = [
     _tool(
         "roblox_bridge_events",
         "Drain lifecycle events received from connected Studio plugins.",
-        {"max_events": {"type": "integer", "minimum": 1, "maximum": 1000}},
+        {
+            "event_type": {"type": "string"},
+            "instance_id": {"type": "string"},
+            "match": {"type": "object"},
+            "max_events": {"type": "integer", "minimum": 1, "maximum": 1000},
+        },
         method=None,
+        idempotent=True,
+    ),
+    _tool(
+        "roblox_wait_for_event",
+        "Wait for a matching Studio bridge event until a bounded timeout.",
+        {
+            "event_type": {"type": "string"},
+            "instance_id": {"type": "string"},
+            "match": {"type": "object"},
+            "timeout_ms": {"type": "integer", "minimum": 1, "maximum": 30000, "default": 5000},
+            "poll_ms": {"type": "integer", "minimum": 10, "maximum": 1000, "default": 50},
+        },
+        idempotent=True,
+    ),
+    _tool(
+        "roblox_get_audit_log",
+        "Read recent adapter operation audit entries with redacted parameters.",
+        {"limit": {"type": "integer", "minimum": 1, "maximum": 1000}},
         idempotent=True,
     ),
 ]
@@ -395,12 +485,99 @@ def _take_studio_target(arguments: Dict[str, Any]) -> Optional[str]:
 
 def _studio_snapshots(bridge: DccBridge) -> List[Dict[str, Any]]:
     """Expose core session metadata with Roblox's public ``studio_id`` spelling."""
+    list_sessions = getattr(bridge, "list_sessions", None)
+    if list_sessions is None:
+        if not bridge.is_connected():
+            return []
+        return [
+            {
+                "studio_id": "active",
+                "instance_id": "active",
+                "connected": True,
+                "note": "The installed dcc-mcp-core exposes one active bridge session.",
+            }
+        ]
     snapshots = []
-    for session in bridge.list_sessions():
+    for session in list_sessions():
         snapshot = dict(session)
         snapshot["studio_id"] = snapshot.get("instance_id")
         snapshots.append(snapshot)
     return snapshots
+
+
+class EventBuffer:
+    """Keep unmatched bridge events available for later filtered reads."""
+
+    def __init__(self) -> None:
+        self._events: List[Dict[str, Any]] = []
+
+    def collect(self, bridge: DccBridge) -> None:
+        self._events.extend(bridge.drain_events())
+
+    def take(
+        self,
+        *,
+        event_type: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        match: Optional[Dict[str, Any]] = None,
+        max_events: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        selected: List[Dict[str, Any]] = []
+        remaining: List[Dict[str, Any]] = []
+        for event in self._events:
+            if _event_matches(event, event_type, instance_id, match) and (
+                max_events is None or len(selected) < max_events
+            ):
+                selected.append(event)
+            else:
+                remaining.append(event)
+        self._events = remaining
+        return selected
+
+    async def wait(
+        self,
+        bridge: DccBridge,
+        *,
+        event_type: Optional[str],
+        instance_id: Optional[str],
+        match: Optional[Dict[str, Any]],
+        timeout_ms: int,
+        poll_ms: int,
+    ) -> Dict[str, Any]:
+        deadline = asyncio.get_running_loop().time() + timeout_ms / 1000
+        while True:
+            self.collect(bridge)
+            events = self.take(event_type=event_type, instance_id=instance_id, match=match, max_events=1)
+            if events:
+                return {"matched": True, "timed_out": False, "event": events[0]}
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                return {"matched": False, "timed_out": True, "event": None}
+            await asyncio.sleep(min(poll_ms / 1000, remaining))
+
+
+def _event_matches(
+    event: Dict[str, Any],
+    event_type: Optional[str],
+    instance_id: Optional[str],
+    match: Optional[Dict[str, Any]],
+) -> bool:
+    """Match common lifecycle fields plus exact top-level fields."""
+    if event_type and event_type not in {
+        str(event.get("type", "")),
+        str(event.get("event", "")),
+        str(event.get("event_type", "")),
+        str(event.get("state", "")),
+    }:
+        return False
+    if instance_id:
+        session = event.get("session")
+        event_instance_id = event.get("instance_id")
+        if event_instance_id is None and isinstance(session, dict):
+            event_instance_id = session.get("instance_id")
+        if event_instance_id != instance_id:
+            return False
+    return all(event.get(key) == value for key, value in (match or {}).items())
 
 
 def _native_tool(tool_name: str) -> Optional[Dict[str, Any]]:
@@ -473,8 +650,12 @@ async def handle_mcp_message(
     bridge: DccBridge,
     message: Dict[str, Any],
     official: Optional[OfficialMcpProxy] = None,
+    audit: Optional[OperationAudit] = None,
+    event_buffer: Optional[EventBuffer] = None,
 ) -> None:
     """Handle one MCP JSON-RPC message on stdout."""
+    audit = audit or OperationAudit()
+    event_buffer = event_buffer or EventBuffer()
     request_id = message.get("id")
     if request_id is None:
         return
@@ -542,7 +723,9 @@ async def handle_mcp_message(
             print(json.dumps(mcp_error(request_id, -32601, f"Unknown typed tool: {nested_name}")), flush=True)
             return
         try:
-            result = await _call_native_tool(bridge, nested_tool, dict(arguments.get("arguments", {})))
+            result = await _call_native_tool(
+                bridge, nested_tool, dict(arguments.get("arguments", {})), audit, event_buffer
+            )
             response = {"content": [{"type": "text", "text": json.dumps(result, sort_keys=True)}], "isError": False}
         except Exception as exc:
             response = {"content": _error_content(str(exc)), "isError": True}
@@ -569,22 +752,105 @@ async def handle_mcp_message(
         return
 
     try:
-        result = await _call_native_tool(bridge, tool, arguments)
+        result = await _call_native_tool(bridge, tool, arguments, audit, event_buffer)
         content = [{"type": "text", "text": json.dumps(result, sort_keys=True)}]
         print(json.dumps(mcp_response(request_id, {"content": content, "isError": False})), flush=True)
     except Exception as exc:
         print(json.dumps(mcp_response(request_id, {"content": _error_content(str(exc)), "isError": True})), flush=True)
 
 
-async def _call_native_tool(bridge: DccBridge, tool: Dict[str, Any], arguments: Dict[str, Any]) -> Any:
-    """Execute one native tool for both direct and Skills calls."""
+_MUTATING_TOOLS = {
+    "roblox_multi_edit",
+    "roblox_create_instance",
+    "roblox_modify_instance",
+    "roblox_scene_transaction",
+    "roblox_delete_instance",
+    "roblox_clone_instance",
+    "roblox_move_instance",
+    "roblox_set_selection",
+    "roblox_insert_service",
+    "roblox_undo",
+    "roblox_redo",
+    "roblox_start_stop_play",
+    "roblox_save_place",
+}
+
+
+async def _call_native_tool(
+    bridge: DccBridge,
+    tool: Dict[str, Any],
+    arguments: Dict[str, Any],
+    audit: OperationAudit,
+    event_buffer: EventBuffer,
+) -> Any:
+    """Execute one native tool and record its operation audit entry."""
+    tool_name = tool["name"]
+    operation_id, started_at, started_iso = audit.begin(tool_name, dict(arguments))
+    dry_run = bool(arguments.get("dry_run", False))
+    try:
+        result = await _call_native_tool_raw(bridge, tool, arguments, audit, event_buffer)
+    except Exception as exc:
+        audit.finish(
+            operation_id,
+            started_at,
+            started_iso,
+            tool_name,
+            arguments,
+            success=False,
+            error=str(exc),
+            dry_run=dry_run,
+        )
+        raise
+    audit.finish(
+        operation_id,
+        started_at,
+        started_iso,
+        tool_name,
+        arguments,
+        success=True,
+        result=result,
+        dry_run=dry_run,
+    )
+    if tool_name in _MUTATING_TOOLS and isinstance(result, dict):
+        result = dict(result)
+        result["operation_id"] = operation_id
+    return result
+
+
+async def _call_native_tool_raw(
+    bridge: DccBridge,
+    tool: Dict[str, Any],
+    arguments: Dict[str, Any],
+    audit: OperationAudit,
+    event_buffer: EventBuffer,
+) -> Any:
+    """Execute one native tool without audit wrapping."""
     tool_name = tool["name"]
     if tool_name == "roblox_list_studios":
         return {"studios": _studio_snapshots(bridge)}
     if tool_name == "roblox_get_class_schema":
         return get_class_schema(arguments["class_name"])
     if tool_name == "roblox_bridge_events":
-        return {"events": bridge.drain_events(arguments.get("max_events"))}
+        event_buffer.collect(bridge)
+        return {
+            "events": event_buffer.take(
+                event_type=arguments.get("event_type"),
+                instance_id=arguments.get("instance_id"),
+                match=arguments.get("match"),
+                max_events=arguments.get("max_events"),
+            )
+        }
+    if tool_name == "roblox_wait_for_event":
+        return await event_buffer.wait(
+            bridge,
+            event_type=arguments.get("event_type"),
+            instance_id=arguments.get("instance_id"),
+            match=arguments.get("match"),
+            timeout_ms=max(1, min(int(arguments.get("timeout_ms", 5000)), 30000)),
+            poll_ms=max(10, min(int(arguments.get("poll_ms", 50)), 1000)),
+        )
+    if tool_name == "roblox_get_audit_log":
+        return {"entries": audit.entries(arguments.get("limit", 100))}
     target_instance_id = _take_studio_target(arguments)
     return await asyncio.to_thread(
         bridge.call,
@@ -605,13 +871,15 @@ class RobloxStudioMcpServer:
         enable_official_mcp: bool = False,
         official_mcp_command: Optional[str] = None,
     ) -> None:
-        self.bridge = DccBridge(
+        self.bridge = RobloxDccBridge(
             host=host,
             port=port,
             server_name=SERVER_NAME,
             server_version=__version__,
         )
         self.official = OfficialMcpProxy(command=official_mcp_command) if enable_official_mcp else None
+        self.audit = OperationAudit()
+        self.event_buffer = EventBuffer()
 
     @property
     def server_name(self) -> str:
@@ -642,7 +910,13 @@ class RobloxStudioMcpServer:
                 if not line:
                     break
                 try:
-                    await handle_mcp_message(self.bridge, json.loads(line), self.official)
+                    await handle_mcp_message(
+                        self.bridge,
+                        json.loads(line),
+                        self.official,
+                        self.audit,
+                        self.event_buffer,
+                    )
                 except json.JSONDecodeError as exc:
                     print(json.dumps(mcp_error(None, -32700, str(exc))), flush=True)
         finally:

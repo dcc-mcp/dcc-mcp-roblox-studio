@@ -26,7 +26,13 @@
    created.
 11. Call `search`, `describe`, `load_skill`, and `call` for
    `roblox-scene-authoring` and verify the same typed tool is reachable.
-12. If the official launcher is available, call one `roblox_official__*` tool
+12. Call `roblox_scene_transaction` with `dry_run: true` and verify that the
+   place is unchanged.
+13. Call `roblox_bridge_events` with `event_type` and `instance_id`, then use
+   `roblox_wait_for_event` with a short timeout.
+14. Call `roblox_get_audit_log` and verify the mutating operation has an
+   `operation_id` and redacted arguments.
+15. If the official launcher is available, call one `roblox_official__*` tool
     returned by `tools/list` and verify its result through MCP.
 
 For a visible end-to-end result, follow the

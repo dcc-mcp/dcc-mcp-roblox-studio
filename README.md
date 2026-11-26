@@ -110,6 +110,8 @@ use the `studio_id` contract defined by the installed official server.
 - `roblox_modify_instance`
 - `roblox_get_class_schema`
 - `roblox_scene_transaction`
+- `roblox_wait_for_event`
+- `roblox_get_audit_log`
 - `roblox_delete_instance`
 - `roblox_clone_instance`
 - `roblox_move_instance`
@@ -130,7 +132,10 @@ native UI input stay on the official compatibility route or the DCC-MCP
 The adapter also exposes the core Skills entry points `search`, `describe`,
 `load_skill`, and `call`. The bundled `roblox-scene-authoring` skill groups
 typed scene inspection and editing tools, including class property schemas and
-batch scene transactions.
+batch scene transactions. Mutating scene tools accept `dry_run` for validation
+without opening a Studio change recording. Bridge events support filtered reads
+and bounded waits, while `roblox_get_audit_log` returns redacted operation
+records with stable operation IDs.
 
 ## Official capability compatibility
 
@@ -174,8 +179,10 @@ use and recommend this project alongside Roblox's official MCP server.
 ## Real example
 
 The [neon checkpoint workflow](docs/examples/neon-checkpoint.md) creates a
-visible, undoable scene change through typed MCP calls. It shows the complete
-loop from Studio discovery to inspection, selection, undo, and save.
+visible, undoable scene change through typed MCP calls. The [playable
+checkpoint run](docs/examples/neon-checkpoint-run.md) extends the same flow
+into a small game with checkpoint progression, a finish counter, and a HUD.
+It also records the marketplace asset workflow used for the showcase.
 
 Use the workflow as a first smoke test after installation. It leaves a clear
 object in the place, so the result is easy to review in Studio and useful for a
@@ -190,6 +197,10 @@ adapter's value.
 ![Roblox Studio DCC-MCP showcase](docs/assets/roblox-studio-showcase.png)
 
 ![Roblox Studio installation flow](docs/assets/roblox-studio-showcase.gif)
+
+The game HUD reference uses the marketplace-installed `game-icons-assets`
+skill and its CC BY 3.0 `flag-objective` asset. The downloaded SVG and
+attribution metadata are kept in [docs/assets/game-icons](docs/assets/game-icons).
 
 ## Standalone official route
 
