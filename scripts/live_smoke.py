@@ -17,8 +17,11 @@ ROOT = Path(__file__).parents[1]
 
 class McpProcess:
     def __init__(self, port: int) -> None:
+        command = [sys.executable, "-m", "dcc_mcp_roblox_studio.server", "--ws-port", str(port)]
+        if os.environ.get("DCC_MCP_ROBLOX_ENABLE_OFFICIAL") == "1":
+            command.append("--enable-official-mcp")
         self.process = subprocess.Popen(
-            [sys.executable, "-m", "dcc_mcp_roblox_studio.server", "--ws-port", str(port)],
+            command,
             cwd=ROOT,
             env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
             stdin=subprocess.PIPE,
@@ -109,7 +112,8 @@ def launch_studio(install: bool) -> subprocess.Popen[str]:
     executable = locate_studio()
     place = os.environ.get("ROBLOX_STUDIO_PLACE")
     if not place and os.environ.get("DCC_MCP_ROBLOX_DEFAULT_PACKAGE") == "1":
-        package = ROOT / "artifacts" / "neon-checkpoint-run.rbxlx"
+        package_name = os.environ.get("DCC_MCP_ROBLOX_PACKAGE", "neon-checkpoint-run")
+        package = ROOT / "artifacts" / f"{package_name}.rbxlx"
         if package.is_file():
             place = str(package)
     arguments = [str(executable)]
@@ -143,6 +147,48 @@ def run_checks(call: Any) -> Dict[str, Any]:
     def require(condition: bool, stage: str, detail: str) -> None:
         if not condition:
             raise RuntimeError(f"smoke stage {stage!r} failed: {detail}")
+
+    def select_studio(studios: list[Dict[str, Any]]) -> str:
+        configured_id = os.environ.get("DCC_MCP_ROBLOX_STUDIO_ID", "").strip()
+        if configured_id:
+            if any(item.get("studio_id") == configured_id for item in studios):
+                return configured_id
+            raise RuntimeError(
+                "smoke stage 'studio selection' failed: "
+                f"configured studio {configured_id!r} is not connected; available={studios}"
+            )
+
+        expected_game = os.environ.get("DCC_MCP_ROBLOX_EXPECT_GAME", "").strip()
+        if not expected_game:
+            return str(studios[0].get("studio_id", ""))
+
+        matches = []
+        probes = []
+        for studio in studios:
+            candidate_id = studio.get("studio_id")
+            if not candidate_id:
+                continue
+            try:
+                scene = check(
+                    "studio selection",
+                    "tools/call",
+                    {
+                        "name": "roblox_search_game_tree",
+                        "arguments": {"studio_id": candidate_id, "query": expected_game},
+                    },
+                )
+                probes.append({"studio_id": candidate_id, "results": scene.get("results", [])})
+                if any(item.get("name") == expected_game for item in scene.get("results", [])):
+                    matches.append(candidate_id)
+            except RuntimeError as exc:
+                probes.append({"studio_id": candidate_id, "error": str(exc)})
+
+        if not matches:
+            raise RuntimeError(
+                "smoke stage 'studio selection' failed: "
+                f"no connected Studio contains {expected_game!r}; probes={probes}"
+            )
+        return str(matches[0])
 
     def wait_for_play_state(expected: bool) -> Dict[str, Any]:
         deadline = time.monotonic() + float(os.environ.get("DCC_MCP_ROBLOX_PLAY_WAIT_SECS", "30"))
@@ -183,7 +229,7 @@ def run_checks(call: Any) -> Dict[str, Any]:
             time.sleep(0.25)
     if not studios:
         raise RuntimeError("smoke stage 'studio discovery' failed: no Roblox Studio plugin connected before timeout")
-    studio_id = studios[0]["studio_id"]
+    studio_id = select_studio(studios)
 
     schema = check(
         "class schema", "tools/call", {"name": "roblox_get_class_schema", "arguments": {"class_name": "Part"}}
@@ -266,11 +312,18 @@ def run_checks(call: Any) -> Dict[str, Any]:
             "tools/call",
             {
                 "name": "roblox_script_search",
-                "arguments": {"studio_id": studio_id, "query": "NeonCheckpoint"},
+                "arguments": {
+                    "studio_id": studio_id,
+                    "query": os.environ.get("DCC_MCP_ROBLOX_EXPECT_SCRIPT_PREFIX", "NeonCheckpoint"),
+                },
             },
         )
         script_names = {item.get("name") for item in scripts.get("results", [])}
-        if not {"NeonCheckpointGame", "NeonCheckpointHUD"}.issubset(script_names):
+        expected_scripts = {
+            os.environ.get("DCC_MCP_ROBLOX_EXPECT_GAME_SCRIPT", "NeonCheckpointGame"),
+            os.environ.get("DCC_MCP_ROBLOX_EXPECT_HUD_SCRIPT", "NeonCheckpointHUD"),
+        }
+        if not expected_scripts.issubset(script_names):
             raise RuntimeError(f"package scripts are incomplete: {scripts}")
 
     skills = check("skill search", "tools/call", {"name": "search", "arguments": {"query": "scene"}})
@@ -283,6 +336,37 @@ def run_checks(call: Any) -> Dict[str, Any]:
         "skill load", "tools/call", {"name": "load_skill", "arguments": {"skill_name": "roblox-scene-authoring"}}
     )
     require(loaded.get("loaded") is True, "skill load", f"unexpected result: {loaded}")
+    creator_store = check(
+        "creator store skill",
+        "tools/call",
+        {"name": "load_skill", "arguments": {"skill_name": "roblox-creator-store"}},
+    )
+    require(creator_store.get("loaded") is True, "creator store skill", f"unexpected result: {creator_store}")
+
+    if os.environ.get("DCC_MCP_ROBLOX_ENABLE_OFFICIAL") == "1":
+        official_tools = check("official tools", "tools/list", {}).get("tools", [])
+        official_names = {tool.get("name") for tool in official_tools}
+        require(
+            "roblox_official__search_asset" in official_names,
+            "official tools",
+            "search_asset is missing. Enable Assistant > … > Manage MCP Servers > "
+            f"Enable Studio as MCP server, then retry; available_names={sorted(official_names)}",
+        )
+        official_result = check(
+            "creator store search",
+            "tools/call",
+            {
+                "name": "call",
+                "arguments": {
+                    "tool_slug": "roblox_official__search_asset",
+                    "arguments": {
+                        "query": os.environ.get("DCC_MCP_ROBLOX_CREATOR_STORE_QUERY", "street light"),
+                        "scope": "creator_store",
+                    },
+                },
+            },
+        )
+        require(isinstance(official_result, dict), "creator store search", f"unexpected result: {official_result}")
 
     event = check(
         "event wait",
@@ -302,7 +386,9 @@ def run_checks(call: Any) -> Dict[str, Any]:
     checks = ["schema", "dry_run", "play", "save"]
     if expected_game:
         checks.append("package")
-    checks.extend(["skills", "event_wait", "audit"])
+    checks.extend(["skills", "creator_store_skill", "event_wait", "audit"])
+    if os.environ.get("DCC_MCP_ROBLOX_ENABLE_OFFICIAL") == "1":
+        checks.extend(["official_tools", "creator_store_search"])
     return {
         "studio_id": studio_id,
         "checks": checks,

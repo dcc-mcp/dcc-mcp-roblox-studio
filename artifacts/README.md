@@ -12,3 +12,13 @@ Roblox Studio through the native MCP bridge.
 `AssetService`. A local place with `PlaceId=0` cannot be saved through that API,
 so the adapter returns `reason=unpublished_local_place` for that case. This
 file is the local saved package for that workflow.
+
+# Manhattan Dash
+
+Open `manhattan-dash.rbxlx` in Roblox Studio and press **Play**. It contains a
+playable Manhattan-style city blockout with roads, a river, bridge, Central
+Park, skyline landmark, fire escapes, checkpoints, a finish beacon, server
+progression, and a client HUD.
+
+The package is independent of the adapter at play time. The Creator Store
+dressing workflow is documented in `docs/examples/manhattan-dash.md`.

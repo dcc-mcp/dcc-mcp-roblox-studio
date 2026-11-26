@@ -19,18 +19,19 @@ capabilities safer to compose and easier to verify in an agent workflow.
 - Add redacted operation audit entries with stable operation IDs.
 - Add dry-run validation for scene edits and scene transactions.
 
-## Highest value
+## Completed in this iteration
 
-- Add a marketplace-backed Roblox gameplay skill with a tested asset workflow.
-  The executable `neon-checkpoint-run` example now covers marketplace search,
-  CC BY asset download, typed scene assembly, gameplay scripts, and live tree
-  verification. Roblox-specific marketplace entries remain a future catalog
-  addition because the current marketplace asset entries target other DCCs.
+- Add the `roblox-creator-store` skill. It discovers the live official
+  `search_asset` and `insert_asset` tools through the adapter's compatibility
+  namespace, so the installed Studio build remains the schema authority.
+- Add the standalone `manhattan-dash.rbxlx` game. It covers procedural city
+  blockout, gameplay scripts, Play, Save, package tree verification, and a
+  Creator Store dressing pass.
 
 ## Follow-up
 
-- Add repository examples for script maintenance, scene assembly, and a
-  cross-DCC handoff that combines native tools with the official namespace.
+- Add repository examples for script maintenance and a cross-DCC handoff that
+  combines native tools with the official namespace.
 
 ## Evidence
 

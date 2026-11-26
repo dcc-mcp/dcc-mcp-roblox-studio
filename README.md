@@ -132,10 +132,12 @@ native UI input stay on the official compatibility route or the DCC-MCP
 The adapter also exposes the core Skills entry points `search`, `describe`,
 `load_skill`, and `call`. The bundled `roblox-scene-authoring` skill groups
 typed scene inspection and editing tools, including class property schemas and
-batch scene transactions. Mutating scene tools accept `dry_run` for validation
-without opening a Studio change recording. Bridge events support filtered reads
-and bounded waits, while `roblox_get_audit_log` returns redacted operation
-records with stable operation IDs.
+batch scene transactions. The `roblox-creator-store` skill routes live Creator
+Store search and asset insertion through Roblox's official MCP namespace.
+Mutating scene tools accept `dry_run` for validation without opening a Studio
+change recording. Bridge events support filtered reads and bounded waits, while
+`roblox_get_audit_log` returns redacted operation records with stable operation
+IDs.
 
 ## Official capability compatibility
 
@@ -176,13 +178,16 @@ tools, forward newly exposed official tools, and preserve the same gateway and
 operational model across the fleet. That combined capability is the reason to
 use and recommend this project alongside Roblox's official MCP server.
 
-## Real example
+## Real playable example
 
-The [neon checkpoint workflow](docs/examples/neon-checkpoint.md) creates a
-visible, undoable scene change through typed MCP calls. The [playable
-checkpoint run](docs/examples/neon-checkpoint-run.md) extends the same flow
-into a small game with checkpoint progression, a finish counter, and a HUD.
-It also records the marketplace asset workflow used for the showcase.
+The [Manhattan Dash workflow](docs/examples/manhattan-dash.md) opens a complete
+playable local place with a street grid, Hudson River, bridge, Central Park,
+fire escapes, skyline landmark, checkpoints, a finish beacon, server gameplay,
+and a HUD. The workflow then uses the Creator Store skill to search and insert
+reviewed street and park assets through the official Studio MCP route.
+
+The [neon checkpoint workflow](docs/examples/neon-checkpoint.md) remains the
+smallest typed scene example for adapter bring-up.
 
 Use the workflow as a first smoke test after installation. It leaves a clear
 object in the place, so the result is easy to review in Studio and useful for a
@@ -199,11 +204,14 @@ skill and its CC BY 3.0 `flag-objective` asset. The downloaded SVG and
 attribution metadata are kept in [docs/assets/game-icons](docs/assets/game-icons).
 
 The standalone playable package is available at
-[`artifacts/neon-checkpoint-run.rbxlx`](artifacts/neon-checkpoint-run.rbxlx).
-Open it directly in Roblox Studio and press Play. The package includes the
-course geometry, checkpoint logic, finish counter, and HUD. A local package has
+[`artifacts/manhattan-dash.rbxlx`](artifacts/manhattan-dash.rbxlx). Open it
+directly in Roblox Studio and press Play. The package includes the city
+geometry, checkpoint logic, completion counter, and HUD. A local package has
 `PlaceId=0`, so the native save route reports `unpublished_local_place` until
 the place is published. The checked-in `.rbxlx` file is the local saved output.
+
+The earlier [`artifacts/neon-checkpoint-run.rbxlx`](artifacts/neon-checkpoint-run.rbxlx)
+package remains available as a compact smoke fixture.
 
 ## Standalone official route
 
