@@ -71,9 +71,12 @@ interactive desktop. It uploads the smoke log on every run.
    `roblox_wait_for_event` with a short timeout.
 14. Call `roblox_get_audit_log` and verify the mutating operation has an
    `operation_id` and redacted arguments.
-15. If the official launcher is available, call one `roblox_official__*` tool
-    returned by `tools/list` and verify its result through MCP.
+15. Set `DCC_MCP_ROBLOX_ENABLE_OFFICIAL=1` to start the installed official
+    StudioMCP launcher alongside the adapter. The smoke then requires
+    `roblox_official__search_asset`, searches the Creator Store, and verifies
+    the result through the adapter's `call` route.
 
 For a visible end-to-end result, follow the
-[neon checkpoint workflow](examples/neon-checkpoint.md). It produces a scene
-object that can be inspected and selected in Studio after the MCP calls.
+[Manhattan Dash workflow](examples/manhattan-dash.md). It opens the complete
+city package, validates Play and Save, and provides the Creator Store dressing
+pass used by the showcase.

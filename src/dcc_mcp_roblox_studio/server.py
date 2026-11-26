@@ -621,7 +621,7 @@ def _search_catalog(arguments: Dict[str, Any]) -> Dict[str, Any]:
 
 def _describe_capability(tool_slug: str) -> Dict[str, Any]:
     """Describe a bundled skill or a native typed tool."""
-    if tool_slug == "roblox-scene-authoring":
+    if tool_slug in {"roblox-scene-authoring", "roblox-creator-store"}:
         return describe_skill(tool_slug)
     tool = _native_tool(tool_slug)
     if tool is None:
@@ -720,6 +720,14 @@ async def handle_mcp_message(
     if tool_name == "call":
         nested_name = str(arguments.get("tool_slug", ""))
         nested_tool = _native_tool(nested_name)
+        if nested_tool is None and official is not None and nested_name.startswith(official.tool_prefix):
+            try:
+                result = official.call(nested_name, dict(arguments.get("arguments", {})))
+                response = {"content": [{"type": "text", "text": json.dumps(result, sort_keys=True)}], "isError": False}
+            except Exception as exc:
+                response = {"content": _error_content(str(exc)), "isError": True}
+            print(json.dumps(mcp_response(request_id, response)), flush=True)
+            return
         if nested_tool is None:
             print(json.dumps(mcp_error(request_id, -32601, f"Unknown typed tool: {nested_name}")), flush=True)
             return

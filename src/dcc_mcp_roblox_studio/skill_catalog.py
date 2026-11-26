@@ -26,6 +26,16 @@ SKILL_TOOLS = [
     "roblox_redo",
 ]
 
+CREATOR_STORE_SKILL_NAME = "roblox-creator-store"
+CREATOR_STORE_SKILL_DESCRIPTION = (
+    "Roblox Creator Store workflow for searching public and inventory assets, reviewing the returned "
+    "metadata, and inserting a selected numeric asset ID through the official Studio MCP namespace."
+)
+CREATOR_STORE_SKILL_TOOLS = [
+    "roblox_official__search_asset",
+    "roblox_official__insert_asset",
+]
+
 
 def skill_catalog() -> List[Dict[str, Any]]:
     """Return the adapter's built-in skill summaries."""
@@ -37,7 +47,15 @@ def skill_catalog() -> List[Dict[str, Any]]:
             "layer": "domain",
             "stage": "authoring",
             "tools": list(SKILL_TOOLS),
-        }
+        },
+        {
+            "name": CREATOR_STORE_SKILL_NAME,
+            "description": CREATOR_STORE_SKILL_DESCRIPTION,
+            "dcc": "roblox-studio",
+            "layer": "domain",
+            "stage": "asset_ingest",
+            "tools": list(CREATOR_STORE_SKILL_TOOLS),
+        },
     ]
 
 

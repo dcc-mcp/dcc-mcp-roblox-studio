@@ -47,3 +47,12 @@ def test_playable_showcase_contract_and_asset_attribution_exist() -> None:
     assert "NeonCheckpointHUD" in example
     assert "CC BY 3.0" in example
     assert asset.exists()
+
+
+def test_manhattan_showcase_contract_and_creator_store_skill_exist() -> None:
+    example = (ROOT / "docs" / "examples" / "manhattan-dash.md").read_text(encoding="utf-8")
+    skill = ROOT / "src" / "dcc_mcp_roblox_studio" / "skills" / "roblox-creator-store" / "SKILL.md"
+    assert "ManhattanReplica" in example
+    assert "search_asset" in example
+    assert "insert_asset" in example
+    assert skill.exists()

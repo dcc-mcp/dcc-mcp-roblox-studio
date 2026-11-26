@@ -1,0 +1,5 @@
+tools:
+  - name: roblox_official__search_asset
+    description: Search Roblox Creator Store or Creator Inventory assets using the live Studio schema.
+  - name: roblox_official__insert_asset
+    description: Insert one reviewed Roblox asset by numeric asset ID using the live Studio schema.

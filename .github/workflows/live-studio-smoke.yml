@@ -41,11 +41,15 @@ jobs:
           DCC_MCP_ROBLOX_SMOKE_PORT: "9001"
           DCC_MCP_ROBLOX_SMOKE_WAIT_SECS: "60"
           DCC_MCP_ROBLOX_DEFAULT_PACKAGE: "1"
+          DCC_MCP_ROBLOX_PACKAGE: "manhattan-dash"
+          DCC_MCP_ROBLOX_EXPECT_GAME: "ManhattanReplica"
+          DCC_MCP_ROBLOX_EXPECT_SCRIPT_PREFIX: "ManhattanDash"
+          DCC_MCP_ROBLOX_EXPECT_GAME_SCRIPT: "ManhattanDashGame"
+          DCC_MCP_ROBLOX_EXPECT_HUD_SCRIPT: "ManhattanDashHUD"
+          DCC_MCP_ROBLOX_ENABLE_OFFICIAL: "1"
+          DCC_MCP_ROBLOX_CREATOR_STORE_QUERY: "street light"
           DCC_MCP_ROBLOX_SMOKE_CLOSE_STUDIO: "1"
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:ROBLOX_STUDIO_PLACE)) {
-            $env:DCC_MCP_ROBLOX_EXPECT_GAME = "NeonCheckpointRun"
-          }
           $logPath = Join-Path $env:GITHUB_WORKSPACE "live-studio-smoke.log"
           python scripts/live_smoke.py --launch-studio --install-plugin 2>&1 | Tee-Object -FilePath $logPath
           if ($LASTEXITCODE -ne 0) {

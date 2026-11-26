@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import socket
 from pathlib import Path
 from typing import Any, Dict
@@ -49,6 +50,15 @@ async def fake_studio(websocket: Any) -> None:
             result = {"action": "start" if is_running else "stop"}
         elif method == "roblox.get_studio_state":
             result = {"name": "Fake Roblox Studio", "is_edit": not is_running, "is_running": is_running}
+        elif method == "roblox.search_game_tree":
+            result = {"results": [{"name": "ManhattanReplica", "path": "game.Workspace.ManhattanReplica"}]}
+        elif method == "roblox.script_search":
+            result = {
+                "results": [
+                    {"name": "ManhattanDashGame", "class_name": "Script"},
+                    {"name": "ManhattanDashHUD", "class_name": "LocalScript"},
+                ]
+            }
         elif method == "roblox.save_place":
             result = {"saved": True, "note": message.get("params", {}).get("note")}
         else:
@@ -66,6 +76,13 @@ async def fake_studio(websocket: Any) -> None:
 
 
 async def run() -> Dict[str, Any]:
+    for key, value in {
+        "DCC_MCP_ROBLOX_EXPECT_GAME": "ManhattanReplica",
+        "DCC_MCP_ROBLOX_EXPECT_SCRIPT_PREFIX": "ManhattanDash",
+        "DCC_MCP_ROBLOX_EXPECT_GAME_SCRIPT": "ManhattanDashGame",
+        "DCC_MCP_ROBLOX_EXPECT_HUD_SCRIPT": "ManhattanDashHUD",
+    }.items():
+        os.environ.setdefault(key, value)
     port = free_port()
     adapter = McpProcess(port)
     plugin = None
