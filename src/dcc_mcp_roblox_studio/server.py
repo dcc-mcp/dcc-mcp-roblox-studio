@@ -379,7 +379,16 @@ TOOLS: List[Dict[str, Any]] = [
     _tool(
         "roblox_start_stop_play",
         "Start or stop Studio playtesting through StudioTestService.",
-        {"action": {"type": "string", "enum": ["start", "stop"]}, **_TARGET_PROPERTIES},
+        {
+            "action": {"type": "string", "enum": ["start", "stop"]},
+            "auto_stop_after": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 300,
+                "description": "Optional automatic stop delay in seconds for unattended play smoke tests.",
+            },
+            **_TARGET_PROPERTIES,
+        },
         required=["action"],
         method="roblox.start_stop_play",
         read_only=False,

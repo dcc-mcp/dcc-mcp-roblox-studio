@@ -24,6 +24,8 @@ python scripts/live_smoke.py --launch-studio --install-plugin
 Set `ROBLOX_STUDIO_PLACE` to open a specific local place. Set
 `ROBLOX_STUDIO_EXE` when Studio is installed outside the standard Roblox path.
 Set `DCC_MCP_ROBLOX_SMOKE_CLOSE_STUDIO=1` to close the process after the run.
+Set `DCC_MCP_ROBLOX_AUTO_STOP_AFTER` to let an unattended play smoke end through
+the server-side `StudioTestService` controller after the given number of seconds.
 The default bridge port is `9001`, which matches the bundled plugin. Set
 `DCC_MCP_ROBLOX_SMOKE_PORT` only when the plugin bundle is changed to use the
 same port.

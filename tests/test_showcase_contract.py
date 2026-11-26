@@ -43,6 +43,7 @@ def test_ci_protocol_smoke_is_registered() -> None:
     assert "--launch-studio --install-plugin" in live_workflow
     assert "Reset runner Studio" in live_workflow
     assert "DCC_MCP_ROBLOX_DEFAULT_PACKAGE" in live_workflow
+    assert "DCC_MCP_ROBLOX_AUTO_STOP_AFTER" in live_workflow
     assert "DCC_MCP_ROBLOX_EXPECT_GAME" in live_workflow
     assert "--enable-official-mcp" in live_workflow
     assert "live-studio-diagnostics" in live_workflow

@@ -325,16 +325,17 @@ def run_checks(call: Any) -> Dict[str, Any]:
             )
         return str(matches[0])
 
-    def wait_for_play_state(expected: bool) -> Dict[str, Any]:
+    def wait_for_play_state(expected: bool, target_studio_id: Optional[str] = None) -> Dict[str, Any]:
         deadline = time.monotonic() + float(os.environ.get("DCC_MCP_ROBLOX_PLAY_WAIT_SECS", "30"))
         state: Dict[str, Any] = {}
         last_error = ""
+        selected_studio_id = target_studio_id or studio_id
         while time.monotonic() < deadline:
             try:
                 state = check(
                     "play state",
                     "tools/call",
-                    {"name": "roblox_get_studio_state", "arguments": {"studio_id": studio_id}},
+                    {"name": "roblox_get_studio_state", "arguments": {"studio_id": selected_studio_id}},
                 )
             except RuntimeError as exc:
                 last_error = str(exc)
@@ -399,24 +400,53 @@ def run_checks(call: Any) -> Dict[str, Any]:
     require(dry_run.get("dry_run") is True, "transaction dry-run", f"unexpected result: {dry_run}")
     require(dry_run.get("valid") is True, "transaction dry-run", f"unexpected result: {dry_run}")
 
+    auto_stop_after: Optional[float] = None
+    configured_auto_stop = os.environ.get("DCC_MCP_ROBLOX_AUTO_STOP_AFTER", "").strip()
+    if configured_auto_stop:
+        try:
+            auto_stop_after = float(configured_auto_stop)
+        except ValueError as exc:
+            raise RuntimeError(f"invalid DCC_MCP_ROBLOX_AUTO_STOP_AFTER: {configured_auto_stop!r}") from exc
+
+    play_arguments = {"studio_id": studio_id, "action": "start"}
+    if auto_stop_after is not None:
+        play_arguments["auto_stop_after"] = auto_stop_after
+
     play_started = check(
         "play start",
         "tools/call",
         {
             "name": "roblox_start_stop_play",
-            "arguments": {"studio_id": studio_id, "action": "start"},
+            "arguments": play_arguments,
         },
     )
     require(play_started.get("action") == "start", "play start", f"unexpected result: {play_started}")
     wait_for_play_state(True)
-    play_stopped = check(
-        "play stop",
-        "tools/call",
-        {
-            "name": "roblox_start_stop_play",
-            "arguments": {"studio_id": studio_id, "action": "stop"},
-        },
+    running_studio_id = next(
+        (
+            item["studio_id"]
+            for item in check(
+                "running studio discovery",
+                "tools/call",
+                {"name": "roblox_list_studios", "arguments": {}},
+            )["studios"]
+            if item.get("studio_id") and item.get("data_model_type") == "PlayServer"
+        ),
+        studio_id,
     )
+    try:
+        play_stopped = check(
+            "play stop",
+            "tools/call",
+            {
+                "name": "roblox_start_stop_play",
+                "arguments": {"studio_id": running_studio_id, "action": "stop"},
+            },
+        )
+    except RuntimeError as exc:
+        if auto_stop_after is None:
+            raise
+        play_stopped = {"action": "stop", "pending": True, "fallback": "auto_stop", "error": str(exc)}
     require(play_stopped.get("action") == "stop", "play stop", f"unexpected result: {play_stopped}")
     wait_for_play_state(False)
     saved = check(
