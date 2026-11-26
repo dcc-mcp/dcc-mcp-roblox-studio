@@ -23,6 +23,8 @@ def test_plugin_source_contains_typed_operations() -> None:
         "roblox.inspect_instance",
         "roblox.script_read",
         "roblox.multi_edit",
+        "roblox.get_class_schema",
+        "roblox.scene_transaction",
         "roblox.create_instance",
         "roblox.modify_instance",
         "roblox.script_grep",
@@ -30,3 +32,9 @@ def test_plugin_source_contains_typed_operations() -> None:
         "roblox.start_stop_play",
     ):
         assert method in source
+
+
+def test_skill_package_contains_scene_authoring_contract() -> None:
+    skill = ROOT / "src" / "dcc_mcp_roblox_studio" / "skills" / "roblox-scene-authoring"
+    assert (skill / "SKILL.md").exists()
+    assert "roblox_scene_transaction" in (skill / "tools.yaml").read_text(encoding="utf-8")

@@ -108,6 +108,8 @@ use the `studio_id` contract defined by the installed official server.
 - `roblox_script_grep`
 - `roblox_create_instance`
 - `roblox_modify_instance`
+- `roblox_get_class_schema`
+- `roblox_scene_transaction`
 - `roblox_delete_instance`
 - `roblox_clone_instance`
 - `roblox_move_instance`
@@ -124,6 +126,11 @@ All native write operations use typed parameters and an undo recording where
 Roblox Studio exposes `ChangeHistoryService`. Arbitrary Luau execution and
 native UI input stay on the official compatibility route or the DCC-MCP
 `ui-control` skill when those capabilities are required.
+
+The adapter also exposes the core Skills entry points `search`, `describe`,
+`load_skill`, and `call`. The bundled `roblox-scene-authoring` skill groups
+typed scene inspection and editing tools, including class property schemas and
+batch scene transactions.
 
 ## Official capability compatibility
 

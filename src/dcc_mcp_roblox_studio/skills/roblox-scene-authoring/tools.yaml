@@ -1,0 +1,27 @@
+tools:
+  - name: roblox_get_class_schema
+    description: Return the supported property schema for a Roblox Instance class.
+  - name: roblox_search_game_tree
+    description: Search the connected Studio DataModel by path, class, or name.
+  - name: roblox_inspect_instance
+    description: Inspect one Roblox Studio instance and its immediate children.
+  - name: roblox_create_instance
+    description: Create an Instance under a parent with typed properties and attributes.
+  - name: roblox_modify_instance
+    description: Modify properties and attributes on an existing Instance.
+  - name: roblox_scene_transaction
+    description: Apply multiple scene operations as one undoable Studio transaction.
+  - name: roblox_delete_instance
+    description: Delete an Instance with one ChangeHistoryService recording.
+  - name: roblox_clone_instance
+    description: Clone an Instance into a new parent with one undoable operation.
+  - name: roblox_move_instance
+    description: Move an Instance to a new parent with one undoable operation.
+  - name: roblox_get_selection
+    description: Read the current Studio selection.
+  - name: roblox_set_selection
+    description: Set the current Studio selection.
+  - name: roblox_undo
+    description: Undo the latest plugin change in Studio.
+  - name: roblox_redo
+    description: Redo the latest plugin change in Studio.

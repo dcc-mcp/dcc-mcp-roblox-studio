@@ -5,13 +5,18 @@ DataModel edits, script search, selection, play control, console capture, save,
 and official MCP compatibility. The next improvements should make those
 capabilities safer to compose and easier to verify in an agent workflow.
 
+## Completed in this iteration
+
+- Add a structured property schema for supported Roblox classes. The schema
+  is queryable through `roblox_get_class_schema` and enforced by the plugin for
+  bundled classes.
+- Add a batch scene transaction for create, modify, move, clone, and delete.
+  One request produces one undo record and returns a per-operation result.
+- Add the `roblox-scene-authoring` skill package and the core `search`,
+  `describe`, `load_skill`, and `call` entry points.
+
 ## Highest value
 
-- Add a structured property schema for supported Roblox classes. Today
-  `properties` are validated by Studio at call time, which makes a typo or an
-  unsupported value expensive to diagnose.
-- Add a batch scene transaction for create, modify, move, clone, and delete.
-  One request would produce one undo record and return a per-operation result.
 - Add event filtering and a wait operation for bridge lifecycle and Studio
   state changes. Agents currently need to poll or drain the event queue.
 

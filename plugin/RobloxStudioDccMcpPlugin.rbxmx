@@ -39,6 +39,44 @@ local INSTANCE_ID = HttpService:GenerateGUID(false)
 local consoleLines = {}
 local MAX_CONSOLE_LINES = 512
 
+local PROPERTY_SCHEMAS = {
+	Instance = {
+		inherits = {},
+		properties = {
+			Name = {type = "string"},
+			Archivable = {type = "boolean"},
+		},
+	},
+	Folder = {inherits = {"Instance"}, properties = {}},
+	Model = {
+		inherits = {"Instance"},
+		properties = {PrimaryPart = {type = "Instance", class_name = "BasePart"}},
+	},
+	BasePart = {
+		inherits = {"Instance"},
+		properties = {
+			Anchored = {type = "boolean"},
+			CanCollide = {type = "boolean"},
+			CanQuery = {type = "boolean"},
+			CanTouch = {type = "boolean"},
+			CastShadow = {type = "boolean"},
+			Color = {type = "Color3"},
+			CFrame = {type = "CFrame"},
+			Material = {type = "EnumItem", enum = "Material"},
+			Position = {type = "Vector3"},
+			Reflectance = {type = "number"},
+			Size = {type = "Vector3"},
+			Transparency = {type = "number"},
+		},
+	},
+	Part = {inherits = {"BasePart"}, properties = {}},
+	SpawnLocation = {inherits = {"Part"}, properties = {Enabled = {type = "boolean"}}},
+	LuaSourceContainer = {inherits = {"Instance"}, properties = {Source = {type = "string"}}},
+	Script = {inherits = {"LuaSourceContainer"}, properties = {}},
+	LocalScript = {inherits = {"LuaSourceContainer"}, properties = {}},
+	ModuleScript = {inherits = {"LuaSourceContainer"}, properties = {}},
+}
+
 LogService.MessageOut:Connect(function(message, messageType)
 	table.insert(consoleLines, {
 		message = message,
@@ -144,6 +182,14 @@ local function decodeValue(value)
 			(value.y and value.y.scale) or 0,
 			(value.y and value.y.offset) or 0
 		)
+	elseif value.type == "CFrame" then
+		return CFrame.new(table.unpack(value.components or {}))
+	elseif value.type == "EnumItem" then
+		local enumType = Enum[value.enum or ""]
+		if not enumType or not enumType[value.name or ""] then
+			error("unknown enum value: " .. tostring(value.enum) .. "." .. tostring(value.name))
+		end
+		return enumType[value.name]
 	elseif value.type == "BrickColor" then
 		return BrickColor.new(value.name or "White")
 	elseif value.type == "Instance" then
@@ -152,14 +198,88 @@ local function decodeValue(value)
 	return value
 end
 
-local function setProperties(instance, properties)
+local function classSupports(className, requestedClass)
+	if className == requestedClass then
+		return true
+	end
+	local schema = PROPERTY_SCHEMAS[className]
+	for _, parent in ipairs((schema and schema.inherits) or {}) do
+		if classSupports(parent, requestedClass) then
+			return true
+		end
+	end
+	return false
+end
+
+local function mergedClassProperties(className)
+	local properties = {}
+	local schema = PROPERTY_SCHEMAS[className]
+	if not schema then
+		return properties
+	end
+	for _, parent in ipairs(schema.inherits or {}) do
+		for name, definition in pairs(mergedClassProperties(parent)) do
+			properties[name] = definition
+		end
+	end
+	for name, definition in pairs(schema.properties or {}) do
+		properties[name] = definition
+	end
+	return properties
+end
+
+local function validateProperties(target, properties)
+	local className = type(target) == "string" and target or nil
+	if typeof(target) == "Instance" then
+		className = target.ClassName
+	end
+	local definitions = {}
+	for schemaName in pairs(PROPERTY_SCHEMAS) do
+		if classSupports(className, schemaName) then
+			for name, definition in pairs(mergedClassProperties(schemaName)) do
+				definitions[name] = definition
+			end
+		end
+	end
+	if next(definitions) == nil then
+		return
+	end
 	for name, value in pairs(properties or {}) do
-		local decoded = decodeValue(value)
-		local ok, failure = pcall(function()
-			instance[name] = decoded
-		end)
-		if not ok then
-			error("could not set property " .. tostring(name) .. ": " .. tostring(failure))
+		if name ~= "attributes" and not definitions[name] then
+			error("property is not supported for " .. tostring(className) .. ": " .. tostring(name))
+		end
+		if name ~= "attributes" then
+			local decoded = decodeValue(value)
+			local expected = definitions[name].type
+			local actual = typeof(decoded)
+			if expected ~= actual and not (expected == "number" and actual == "number") then
+				error("property " .. tostring(name) .. " expects " .. expected .. ", got " .. actual)
+			end
+		end
+	end
+end
+
+local function classSchema(className)
+	local schema = PROPERTY_SCHEMAS[className]
+	return {
+		class_name = className,
+		known = schema ~= nil,
+		inherits = schema and schema.inherits or {},
+		properties = mergedClassProperties(className),
+	}
+end
+
+local function setProperties(instance, properties)
+	validateProperties(instance, properties)
+	for name, value in pairs(properties or {}) do
+		if name ~= "attributes" then
+			local decoded = decodeValue(value)
+			local ok, failure = pcall(function()
+				instance[name] = decoded
+			end)
+			if not ok then
+				error("could not set property " .. tostring(name) .. ": " .. tostring(failure))
+			end
 		end
 	end
 	for name, value in pairs((properties and properties.attributes) or {}) do
@@ -321,59 +441,143 @@ local function applyMultiEdit(params)
 	return {changed = changed, count = #changed}
 end
 
+local function createInstanceInternal(params)
+	local className = params.class_name
+	local parent = instanceAtPath(params.parent or "game.Workspace")
+	if not parent then
+		error("parent not found: " .. tostring(params.parent))
+	end
+	validateProperties(className, params.properties)
+	local instance = Instance.new(className)
+	instance.Name = params.name or className
+	setProperties(instance, params.properties)
+	setAttributes(instance, params.attributes)
+	instance.Parent = parent
+	return instanceSummary(instance)
+end
+
 local function createInstance(params)
 	return withRecording("DCC-MCP Create Instance", function()
-		local className = params.class_name
-		local parent = instanceAtPath(params.parent or "game.Workspace")
-		if not parent then
-			error("parent not found: " .. tostring(params.parent))
-		end
-		local instance = Instance.new(className)
-		instance.Name = params.name or className
-		setProperties(instance, params.properties)
-		setAttributes(instance, params.attributes)
-		instance.Parent = parent
-		return instanceSummary(instance)
+		return createInstanceInternal(params)
 	end)
+end
+
+local function modifyInstanceInternal(params)
+	local instance = instanceAtPath(params.path)
+	if not instance then
+		error("instance not found: " .. tostring(params.path))
+	end
+	setProperties(instance, params.properties)
+	setAttributes(instance, params.attributes)
+	return instanceSummary(instance)
 end
 
 local function modifyInstance(params)
 	return withRecording("DCC-MCP Modify Instance", function()
-		local instance = instanceAtPath(params.path)
-		if not instance then
-			error("instance not found: " .. tostring(params.path))
-		end
-		setProperties(instance, params.properties)
-		setAttributes(instance, params.attributes)
-		return instanceSummary(instance)
+		return modifyInstanceInternal(params)
 	end)
+end
+
+local function cloneInstanceInternal(params)
+	local source = instanceAtPath(params.path)
+	local parent = instanceAtPath(params.parent)
+	if not source or not parent then
+		error("source or parent not found")
+	end
+	local clone = source:Clone()
+	if params.name then
+		clone.Name = params.name
+	end
+	clone.Parent = parent
+	return instanceSummary(clone)
 end
 
 local function cloneInstance(params)
 	return withRecording("DCC-MCP Clone Instance", function()
-		local source = instanceAtPath(params.path)
-		local parent = instanceAtPath(params.parent)
-		if not source or not parent then
-			error("source or parent not found")
-		end
-		local clone = source:Clone()
-		if params.name then
-			clone.Name = params.name
-		end
-		clone.Parent = parent
-		return instanceSummary(clone)
+		return cloneInstanceInternal(params)
 	end)
+end
+
+local function moveInstanceInternal(params)
+	local instance = instanceAtPath(params.path)
+	local parent = instanceAtPath(params.parent)
+	if not instance or not parent then
+		error("instance or parent not found")
+	end
+	instance.Parent = parent
+	return {path = instance:GetFullName()}
 end
 
 local function moveInstance(params)
 	return withRecording("DCC-MCP Move Instance", function()
-		local instance = instanceAtPath(params.path)
-		local parent = instanceAtPath(params.parent)
-		if not instance or not parent then
-			error("instance or parent not found")
+		return moveInstanceInternal(params)
+	end)
+end
+
+local function validateTransactionOperation(operation)
+	local operationType = operation.type
+	if operationType == "create" then
+		if type(operation.class_name) ~= "string" then
+			error("create operation requires class_name")
 		end
-		instance.Parent = parent
-		return {path = instance:GetFullName()}
+		if not instanceAtPath(operation.parent or "game.Workspace") then
+			error("create parent not found: " .. tostring(operation.parent))
+		end
+		validateProperties(operation.class_name, operation.properties)
+	elseif operationType == "modify" then
+		local instance = instanceAtPath(operation.path)
+		if not instance then
+			error("modify path not found: " .. tostring(operation.path))
+		end
+		validateProperties(instance, operation.properties)
+	elseif operationType == "delete" then
+		local instance = instanceAtPath(operation.path)
+		if not instance or instance == game then
+			error("cannot delete instance: " .. tostring(operation.path))
+		end
+	elseif operationType == "clone" then
+		if not instanceAtPath(operation.path) or not instanceAtPath(operation.parent) then
+			error("clone source or parent not found")
+		end
+	elseif operationType == "move" then
+		if not instanceAtPath(operation.path) or not instanceAtPath(operation.parent) then
+			error("move instance or parent not found")
+		end
+	else
+		error("unknown scene transaction operation: " .. tostring(operationType))
+	end
+end
+
+local function applySceneTransaction(params)
+	local operations = params.operations or {}
+	if #operations < 1 or #operations > 64 then
+		error("operations must contain between 1 and 64 entries")
+	end
+	for _, operation in ipairs(operations) do
+		validateTransactionOperation(operation)
+	end
+	return withRecording("DCC-MCP Scene Transaction", function()
+		local results = {}
+		for index, operation in ipairs(operations) do
+			local operationType = operation.type
+			local result
+			if operationType == "create" then
+				result = createInstanceInternal(operation)
+			elseif operationType == "modify" then
+				result = modifyInstanceInternal(operation)
+			elseif operationType == "delete" then
+				local instance = instanceAtPath(operation.path)
+				local path = instance:GetFullName()
+				instance:Destroy()
+				result = {deleted = path}
+			elseif operationType == "clone" then
+				result = cloneInstanceInternal(operation)
+			else
+				result = moveInstanceInternal(operation)
+			end
+			table.insert(results, {index = index, type = operationType, result = result})
+		end
+		return {results = results, count = #results}
 	end)
 end
 
@@ -396,12 +600,16 @@ local handlers = {
 		end
 		return instanceSummary(instance)
 	end,
+	["roblox.get_class_schema"] = function(params)
+		return classSchema(params.class_name)
+	end,
 	["roblox.script_read"] = readScript,
 	["roblox.multi_edit"] = applyMultiEdit,
 	["roblox.script_search"] = searchScripts,
 	["roblox.script_grep"] = grepScripts,
 	["roblox.create_instance"] = createInstance,
 	["roblox.modify_instance"] = modifyInstance,
+	["roblox.scene_transaction"] = applySceneTransaction,
 	["roblox.delete_instance"] = function(params)
 		return withRecording("DCC-MCP Delete Instance", function()
 			local instance = instanceAtPath(params.path)
@@ -542,6 +750,8 @@ connect = function()
 				script_grep = true,
 				create_instance = true,
 				modify_instance = true,
+				get_class_schema = true,
+				scene_transaction = true,
 				delete_instance = true,
 				clone_instance = true,
 				move_instance = true,

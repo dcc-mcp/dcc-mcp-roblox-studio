@@ -12,6 +12,8 @@ from dcc_mcp_core import DccBridge
 
 from dcc_mcp_roblox_studio.__version__ import __version__
 from dcc_mcp_roblox_studio.official_mcp import OfficialMcpError, OfficialMcpProxy
+from dcc_mcp_roblox_studio.schemas import get_class_schema
+from dcc_mcp_roblox_studio.skill_catalog import describe_skill, search_skills
 
 SERVER_NAME = "dcc-mcp-roblox-studio"
 
@@ -184,6 +186,45 @@ TOOLS: List[Dict[str, Any]] = [
         destructive=True,
     ),
     _tool(
+        "roblox_get_class_schema",
+        "Return the supported property schema for a Roblox Instance class.",
+        {"class_name": {"type": "string"}},
+        required=["class_name"],
+        idempotent=True,
+    ),
+    _tool(
+        "roblox_scene_transaction",
+        "Apply multiple scene operations as one undoable Studio transaction.",
+        {
+            "operations": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 64,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": ["create", "modify", "delete", "clone", "move"],
+                        },
+                        "class_name": {"type": "string"},
+                        "path": {"type": "string"},
+                        "parent": {"type": "string"},
+                        "name": {"type": "string"},
+                        "properties": {"type": "object"},
+                        "attributes": {"type": "object"},
+                    },
+                    "required": ["type"],
+                },
+            },
+            **_TARGET_PROPERTIES,
+        },
+        required=["operations"],
+        method="roblox.scene_transaction",
+        read_only=False,
+        destructive=True,
+    ),
+    _tool(
         "roblox_delete_instance",
         "Delete an Instance with one ChangeHistoryService recording.",
         {"path": {"type": "string"}, **_TARGET_PROPERTIES},
@@ -285,6 +326,50 @@ TOOLS: List[Dict[str, Any]] = [
 ]
 
 
+TOOLS.extend(
+    [
+        _tool(
+            "search",
+            "Search the Roblox adapter's skills and typed tools.",
+            {
+                "query": {"type": "string"},
+                "kind": {"type": "string", "enum": ["skill", "tool", "all"], "default": "all"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+            },
+            idempotent=True,
+        ),
+        _tool(
+            "describe",
+            "Describe one Roblox skill or typed tool by name.",
+            {"tool_slug": {"type": "string"}},
+            required=["tool_slug"],
+            idempotent=True,
+        ),
+        _tool(
+            "load_skill",
+            "Load one bundled Roblox skill and return its typed tools.",
+            {"skill_name": {"type": "string"}},
+            required=["skill_name"],
+        ),
+        _tool(
+            "call",
+            "Call a typed Roblox tool discovered through the Skills interface.",
+            {
+                "tool_slug": {"type": "string"},
+                "arguments": {"type": "object"},
+            },
+            required=["tool_slug"],
+        ),
+        _tool(
+            "search_skills",
+            "Compatibility alias for searching bundled Roblox skills.",
+            {"query": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}},
+            idempotent=True,
+        ),
+    ]
+)
+
+
 def mcp_response(request_id: Any, result: Any) -> Dict[str, Any]:
     """Build one JSON-RPC success response."""
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
@@ -316,6 +401,54 @@ def _studio_snapshots(bridge: DccBridge) -> List[Dict[str, Any]]:
         snapshot["studio_id"] = snapshot.get("instance_id")
         snapshots.append(snapshot)
     return snapshots
+
+
+def _native_tool(tool_name: str) -> Optional[Dict[str, Any]]:
+    """Return a native tool definition while excluding Skills management tools."""
+    return next(
+        (
+            tool
+            for tool in TOOLS
+            if tool["name"] == tool_name
+            and tool_name not in {"search", "describe", "load_skill", "call", "search_skills"}
+        ),
+        None,
+    )
+
+
+def _search_catalog(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Search bundled Skills and native typed tools."""
+    query = str(arguments.get("query", "")).strip().lower()
+    kind = str(arguments.get("kind", "all"))
+    limit = max(1, min(int(arguments.get("limit", 20)), 100))
+    skills = search_skills(query, limit)["skills"] if kind in {"all", "skill"} else []
+    tools = []
+    if kind in {"all", "tool"}:
+        for tool in TOOLS:
+            if _native_tool(tool["name"]) is None:
+                continue
+            haystack = f"{tool['name']} {tool['description']}".lower()
+            if not query or query in haystack:
+                tools.append(
+                    {
+                        "tool_slug": tool["name"],
+                        "description": tool["description"],
+                        "kind": "tool",
+                    }
+                )
+            if len(tools) >= limit:
+                break
+    return {"skills": skills[:limit], "tools": tools[:limit], "count": len(skills[:limit]) + len(tools[:limit])}
+
+
+def _describe_capability(tool_slug: str) -> Dict[str, Any]:
+    """Describe a bundled skill or a native typed tool."""
+    if tool_slug == "roblox-scene-authoring":
+        return describe_skill(tool_slug)
+    tool = _native_tool(tool_slug)
+    if tool is None:
+        raise ValueError(f"tool or skill not found: {tool_slug}")
+    return {key: value for key, value in tool.items() if key != "method"}
 
 
 def _visible_tools(official: Optional[OfficialMcpProxy] = None) -> List[Dict[str, Any]]:
@@ -369,6 +502,53 @@ async def handle_mcp_message(
 
     params = message.get("params", {})
     tool_name = params.get("name")
+    arguments = dict(params.get("arguments", {}))
+
+    if tool_name == "search":
+        result = _search_catalog(arguments)
+        content = [{"type": "text", "text": json.dumps(result, sort_keys=True)}]
+        print(json.dumps(mcp_response(request_id, {"content": content, "isError": False})), flush=True)
+        return
+
+    if tool_name == "search_skills":
+        result = search_skills(arguments.get("query"), arguments.get("limit", 20))
+        content = [{"type": "text", "text": json.dumps(result, sort_keys=True)}]
+        print(json.dumps(mcp_response(request_id, {"content": content, "isError": False})), flush=True)
+        return
+
+    if tool_name == "describe":
+        try:
+            result = _describe_capability(str(arguments.get("tool_slug", "")))
+            response = {"content": [{"type": "text", "text": json.dumps(result, sort_keys=True)}], "isError": False}
+        except Exception as exc:
+            response = {"content": _error_content(str(exc)), "isError": True}
+        print(json.dumps(mcp_response(request_id, response)), flush=True)
+        return
+
+    if tool_name == "load_skill":
+        try:
+            skill = describe_skill(str(arguments.get("skill_name", "")))
+            result = {"loaded": True, "skill": skill["name"], "tools": skill["tools"]}
+            response = {"content": [{"type": "text", "text": json.dumps(result, sort_keys=True)}], "isError": False}
+        except Exception as exc:
+            response = {"content": _error_content(str(exc)), "isError": True}
+        print(json.dumps(mcp_response(request_id, response)), flush=True)
+        return
+
+    if tool_name == "call":
+        nested_name = str(arguments.get("tool_slug", ""))
+        nested_tool = _native_tool(nested_name)
+        if nested_tool is None:
+            print(json.dumps(mcp_error(request_id, -32601, f"Unknown typed tool: {nested_name}")), flush=True)
+            return
+        try:
+            result = await _call_native_tool(bridge, nested_tool, dict(arguments.get("arguments", {})))
+            response = {"content": [{"type": "text", "text": json.dumps(result, sort_keys=True)}], "isError": False}
+        except Exception as exc:
+            response = {"content": _error_content(str(exc)), "isError": True}
+        print(json.dumps(mcp_response(request_id, response)), flush=True)
+        return
+
     tool = next((item for item in TOOLS if item["name"] == tool_name), None)
     if (
         tool is None
@@ -389,23 +569,29 @@ async def handle_mcp_message(
         return
 
     try:
-        arguments = dict(params.get("arguments", {}))
-        if tool_name == "roblox_list_studios":
-            result = {"studios": _studio_snapshots(bridge)}
-        elif tool_name == "roblox_bridge_events":
-            result = {"events": bridge.drain_events(arguments.get("max_events"))}
-        else:
-            target_instance_id = _take_studio_target(arguments)
-            result = await asyncio.to_thread(
-                bridge.call,
-                tool["method"],
-                target_instance_id=target_instance_id,
-                **arguments,
-            )
+        result = await _call_native_tool(bridge, tool, arguments)
         content = [{"type": "text", "text": json.dumps(result, sort_keys=True)}]
         print(json.dumps(mcp_response(request_id, {"content": content, "isError": False})), flush=True)
     except Exception as exc:
         print(json.dumps(mcp_response(request_id, {"content": _error_content(str(exc)), "isError": True})), flush=True)
+
+
+async def _call_native_tool(bridge: DccBridge, tool: Dict[str, Any], arguments: Dict[str, Any]) -> Any:
+    """Execute one native tool for both direct and Skills calls."""
+    tool_name = tool["name"]
+    if tool_name == "roblox_list_studios":
+        return {"studios": _studio_snapshots(bridge)}
+    if tool_name == "roblox_get_class_schema":
+        return get_class_schema(arguments["class_name"])
+    if tool_name == "roblox_bridge_events":
+        return {"events": bridge.drain_events(arguments.get("max_events"))}
+    target_instance_id = _take_studio_target(arguments)
+    return await asyncio.to_thread(
+        bridge.call,
+        tool["method"],
+        target_instance_id=target_instance_id,
+        **arguments,
+    )
 
 
 class RobloxStudioMcpServer:
