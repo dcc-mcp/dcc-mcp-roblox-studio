@@ -60,3 +60,15 @@ and displays the current checkpoint and win count.
 If the installed Studio plugin predates `roblox_scene_transaction`, the same
 course can be assembled with repeated `roblox_create_instance` calls. The
 committed plugin package contains the transactional route.
+
+## Standalone local package
+
+The repository includes [`artifacts/neon-checkpoint-run.rbxlx`](../../artifacts/neon-checkpoint-run.rbxlx),
+which opens as a local Roblox Studio place and can be played immediately. The
+package contains the course geometry and both gameplay scripts, so it does not
+require the MCP adapter at play time.
+
+The native `roblox_save_place` route persists published places through Roblox's
+`AssetService`. Roblox rejects `SavePlaceAsync` for a local place with
+`PlaceId=0`, so live smoke reports `reason=unpublished_local_place` while the
+checked-in `.rbxlx` file remains the local package output.
