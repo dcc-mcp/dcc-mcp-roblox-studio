@@ -14,18 +14,21 @@ capabilities safer to compose and easier to verify in an agent workflow.
   One request produces one undo record and returns a per-operation result.
 - Add the `roblox-scene-authoring` skill package and the core `search`,
   `describe`, `load_skill`, and `call` entry points.
+- Add filtered event reads and bounded event waits with unmatched-event
+  retention.
+- Add redacted operation audit entries with stable operation IDs.
+- Add dry-run validation for scene edits and scene transactions.
 
 ## Highest value
 
-- Add event filtering and a wait operation for bridge lifecycle and Studio
-  state changes. Agents currently need to poll or drain the event queue.
+- Add a marketplace-backed Roblox gameplay skill with a tested asset workflow.
+  The executable `neon-checkpoint-run` example now covers marketplace search,
+  CC BY asset download, typed scene assembly, gameplay scripts, and live tree
+  verification. Roblox-specific marketplace entries remain a future catalog
+  addition because the current marketplace asset entries target other DCCs.
 
 ## Follow-up
 
-- Return a stable operation ID and a compact audit record for every mutating
-  native call.
-- Add a dry-run mode for instance edits that validates paths and values before
-  opening a Studio change recording.
 - Add repository examples for script maintenance, scene assembly, and a
   cross-DCC handoff that combines native tools with the official namespace.
 

@@ -5,6 +5,8 @@ local HttpService = game:GetService("HttpService")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local Selection = game:GetService("Selection")
 local StudioService = game:GetService("StudioService")
+local StudioTestService = game:GetService("StudioTestService")
+local AssetService = game:GetService("AssetService")
 local LogService = game:GetService("LogService")
 
 local BRIDGE_URL = "ws://127.0.0.1:9001"
@@ -442,6 +444,20 @@ local function createInstanceInternal(params)
 end
 
 local function createInstance(params)
+	if params.dry_run then
+		local parent = instanceAtPath(params.parent or "game.Workspace")
+		if not parent then
+			error("parent not found: " .. tostring(params.parent))
+		end
+		validateProperties(params.class_name, params.properties)
+		return {
+			dry_run = true,
+			valid = true,
+			action = "create",
+			class_name = params.class_name,
+			parent = parent:GetFullName(),
+		}
+	end
 	return withRecording("DCC-MCP Create Instance", function()
 		return createInstanceInternal(params)
 	end)
@@ -458,6 +474,14 @@ local function modifyInstanceInternal(params)
 end
 
 local function modifyInstance(params)
+	if params.dry_run then
+		local instance = instanceAtPath(params.path)
+		if not instance then
+			error("instance not found: " .. tostring(params.path))
+		end
+		validateProperties(instance, params.properties)
+		return {dry_run = true, valid = true, action = "modify", path = instance:GetFullName()}
+	end
 	return withRecording("DCC-MCP Modify Instance", function()
 		return modifyInstanceInternal(params)
 	end)
@@ -478,6 +502,20 @@ local function cloneInstanceInternal(params)
 end
 
 local function cloneInstance(params)
+	if params.dry_run then
+		local source = instanceAtPath(params.path)
+		local parent = instanceAtPath(params.parent)
+		if not source or not parent then
+			error("source or parent not found")
+		end
+		return {
+			dry_run = true,
+			valid = true,
+			action = "clone",
+			path = source:GetFullName(),
+			parent = parent:GetFullName(),
+		}
+	end
 	return withRecording("DCC-MCP Clone Instance", function()
 		return cloneInstanceInternal(params)
 	end)
@@ -494,6 +532,20 @@ local function moveInstanceInternal(params)
 end
 
 local function moveInstance(params)
+	if params.dry_run then
+		local instance = instanceAtPath(params.path)
+		local parent = instanceAtPath(params.parent)
+		if not instance or not parent then
+			error("instance or parent not found")
+		end
+		return {
+			dry_run = true,
+			valid = true,
+			action = "move",
+			path = instance:GetFullName(),
+			parent = parent:GetFullName(),
+		}
+	end
 	return withRecording("DCC-MCP Move Instance", function()
 		return moveInstanceInternal(params)
 	end)
@@ -540,6 +592,9 @@ local function applySceneTransaction(params)
 	end
 	for _, operation in ipairs(operations) do
 		validateTransactionOperation(operation)
+	end
+	if params.dry_run then
+		return {dry_run = true, valid = true, action = "scene_transaction", count = #operations}
 	end
 	return withRecording("DCC-MCP Scene Transaction", function()
 		local results = {}
@@ -596,11 +651,14 @@ local handlers = {
 	["roblox.modify_instance"] = modifyInstance,
 	["roblox.scene_transaction"] = applySceneTransaction,
 	["roblox.delete_instance"] = function(params)
+		local instance = instanceAtPath(params.path)
+		if not instance or instance == game then
+			error("cannot delete instance: " .. tostring(params.path))
+		end
+		if params.dry_run then
+			return {dry_run = true, valid = true, action = "delete", path = instance:GetFullName()}
+		end
 		return withRecording("DCC-MCP Delete Instance", function()
-			local instance = instanceAtPath(params.path)
-			if not instance or instance == game then
-				error("cannot delete instance: " .. tostring(params.path))
-			end
 			local path = instance:GetFullName()
 			instance:Destroy()
 			return {deleted = path}
@@ -652,9 +710,19 @@ local handlers = {
 	end,
 	["roblox.start_stop_play"] = function(params)
 		if params.action == "start" then
-			StudioService:RequestPlay()
+			local started = pcall(function()
+				StudioTestService:ExecutePlayModeAsync({})
+			end)
+			if not started then
+				error("could not start Studio play mode")
+			end
 		elseif params.action == "stop" then
-			StudioService:RequestStop()
+			local stopped = pcall(function()
+				StudioTestService:LeaveTest()
+			end)
+			if not stopped then
+				error("could not stop Studio play mode")
+			end
 		else
 			error("action must be start or stop")
 		end
@@ -662,7 +730,7 @@ local handlers = {
 	end,
 	["roblox.save_place"] = function(params)
 		local ok, failure = pcall(function()
-			StudioService:SavePlaceAsync()
+			AssetService:SavePlaceAsync({SaveWithoutPublish = true})
 		end)
 		if not ok then
 			error(tostring(failure))

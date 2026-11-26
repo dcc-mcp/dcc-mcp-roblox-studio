@@ -25,6 +25,7 @@ def test_plugin_source_contains_typed_operations() -> None:
         "roblox.multi_edit",
         "roblox.get_class_schema",
         "roblox.scene_transaction",
+        "dry_run",
         "roblox.create_instance",
         "roblox.modify_instance",
         "roblox.script_grep",
