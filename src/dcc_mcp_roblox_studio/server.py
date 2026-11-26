@@ -121,6 +121,15 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         **_tool(
+            "roblox_get_official_mcp_status",
+            "Inspect the installed Roblox Studio MCP launcher and optionally probe its live tools.",
+            {"probe": {"type": "boolean", "default": False}},
+            method=None,
+            idempotent=True,
+        ),
+    },
+    {
+        **_tool(
             "roblox_get_studio_state",
             "Read the connected Roblox Studio state.",
             dict(_TARGET_PROPERTIES),
@@ -705,6 +714,19 @@ async def handle_mcp_message(
         except Exception as exc:
             response = {"content": _error_content(str(exc)), "isError": True}
         print(json.dumps(mcp_response(request_id, response)), flush=True)
+        return
+
+    if tool_name == "roblox_get_official_mcp_status":
+        if official is None:
+            result = {
+                "enabled": False,
+                "ready": False,
+                "message": "Official compatibility is disabled. Start the adapter with --enable-official-mcp.",
+            }
+        else:
+            result = official.status(probe=bool(arguments.get("probe", False)))
+        content = [{"type": "text", "text": json.dumps(result, sort_keys=True)}]
+        print(json.dumps(mcp_response(request_id, {"content": content, "isError": False})), flush=True)
         return
 
     if tool_name == "load_skill":

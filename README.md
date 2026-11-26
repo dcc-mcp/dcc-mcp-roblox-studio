@@ -70,8 +70,21 @@ Build the local plugin model:
 python plugin/build_plugin.py
 ```
 
-Copy `plugin/RobloxStudioDccMcpPlugin.rbxmx` into the Roblox Studio local
-Plugins folder, restart Studio, and enable HTTP requests in Studio.
+For manual setup, copy `plugin/RobloxStudioDccMcpPlugin.rbxmx` into the Roblox
+Studio local Plugins folder, restart Studio, and enable HTTP requests in Studio.
+
+For a fully automated local showcase, use the bundled smoke runner. It installs
+the plugin, opens the Manhattan package, starts the adapter, selects the correct
+Studio instance, runs the native checks, and probes the official route:
+
+```powershell
+python scripts/live_smoke.py --launch-studio --install-plugin --enable-official-mcp
+```
+
+The official Studio MCP server must already be enabled in the Studio profile
+through Assistant > … > Manage MCP Servers. Roblox exposes that switch as a
+Studio setting. The runner detects a disabled server and writes a diagnostic
+report instead of waiting for a manual connection.
 
 Start the adapter with official compatibility enabled:
 
@@ -99,6 +112,7 @@ use the `studio_id` contract defined by the installed official server.
 ## Native DCC-MCP tools
 
 - `roblox_list_studios`
+- `roblox_get_official_mcp_status`
 - `roblox_get_studio_state`
 - `roblox_search_game_tree`
 - `roblox_inspect_instance`
@@ -146,6 +160,10 @@ the adapter queries `tools/list` from the installed `StudioMCP` process and
 surfaces the current official schemas without hard-coding a stale tool list.
 The exposed names are prefixed with `roblox_official__` so native and official
 routes remain unambiguous.
+
+Use `roblox_get_official_mcp_status` with `probe: true` to verify the launcher,
+live process, stderr tail, and discovered tool count before calling an official
+tool.
 
 The compatibility route covers the official categories, including script
 operations, DataModel exploration, Luau execution, asset search and insert,

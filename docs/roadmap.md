@@ -27,11 +27,18 @@ capabilities safer to compose and easier to verify in an agent workflow.
 - Add the standalone `manhattan-dash.rbxlx` game. It covers procedural city
   blockout, gameplay scripts, Play, Save, package tree verification, and a
   Creator Store dressing pass.
+- Make live smoke unattended after the runner's Studio MCP profile is prepared.
+  The smoke now launches Studio, installs the plugin, selects the expected
+  package, probes official readiness, and writes bounded failure diagnostics.
+- Add `roblox_get_official_mcp_status` so agents and CI can inspect the
+  installed launcher and live official tool surface through the same adapter.
 
 ## Follow-up
 
 - Add repository examples for script maintenance and a cross-DCC handoff that
   combines native tools with the official namespace.
+- Capture a stable Manhattan smoke artifact from a configured self-hosted
+  Studio runner and publish the package and diagnostics from CI.
 
 ## Evidence
 

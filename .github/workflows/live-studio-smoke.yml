@@ -1,6 +1,9 @@
 name: Live Studio smoke
 
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       studio_exe:
@@ -49,9 +52,10 @@ jobs:
           DCC_MCP_ROBLOX_ENABLE_OFFICIAL: "1"
           DCC_MCP_ROBLOX_CREATOR_STORE_QUERY: "street light"
           DCC_MCP_ROBLOX_SMOKE_CLOSE_STUDIO: "1"
+          DCC_MCP_ROBLOX_DIAGNOSTIC_DIR: live-studio-diagnostics
         run: |
           $logPath = Join-Path $env:GITHUB_WORKSPACE "live-studio-smoke.log"
-          python scripts/live_smoke.py --launch-studio --install-plugin 2>&1 | Tee-Object -FilePath $logPath
+          python scripts/live_smoke.py --launch-studio --install-plugin --enable-official-mcp --diagnostic-dir live-studio-diagnostics 2>&1 | Tee-Object -FilePath $logPath
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -60,7 +64,9 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: live-studio-smoke-log
-          path: live-studio-smoke.log
+          path: |
+            live-studio-smoke.log
+            live-studio-diagnostics
           if-no-files-found: warn
       - name: Cleanup runner Studio
         if: always()
