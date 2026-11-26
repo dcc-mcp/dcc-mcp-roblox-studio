@@ -1,6 +1,9 @@
 name: Live Studio smoke
 
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       studio_exe:
@@ -11,6 +14,11 @@ on:
         description: Optional absolute path to a local .rbxl place
         required: false
         type: string
+      require_official:
+        description: Require the account-level official Studio MCP switch
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -22,12 +30,50 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
+      - name: Prepare Python
+        shell: pwsh
+        run: |
+          $uv = Get-Command uv.exe -ErrorAction SilentlyContinue
+          if (-not $uv) {
+            throw "uv is required on the roblox-studio runner"
+          }
+          $venv = Join-Path $env:GITHUB_WORKSPACE ".venv"
+          & $uv.Source venv --python 3.12 $venv
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+          $python = Join-Path $venv "Scripts\python.exe"
+          if (-not (Test-Path $python)) {
+            throw "The managed Python environment was not created at $python"
+          }
+          "DCC_MCP_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Install adapter
         shell: pwsh
-        run: python -m pip install -e ".[dev]"
+        run: |
+          $uv = (Get-Command uv.exe).Source
+          & $uv pip install --python $env:DCC_MCP_PYTHON -e ".[dev]"
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+      - name: Resolve Studio installation
+        shell: pwsh
+        run: |
+          $studio = & $env:DCC_MCP_PYTHON -c "from scripts.live_smoke import locate_studio; print(locate_studio())"
+          if ($LASTEXITCODE -ne 0 -or -not $studio) {
+            throw "Roblox Studio could not be located"
+          }
+          $studio = $studio | Select-Object -Last 1
+          Write-Host "Using Roblox Studio at $studio"
+          "ROBLOX_STUDIO_EXE=$studio" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Capture official MCP profile
+        shell: pwsh
+        run: |
+          $profilePath = Join-Path $env:GITHUB_WORKSPACE "live-studio-profile.json"
+          $json = & $env:DCC_MCP_PYTHON -c "import json; from dcc_mcp_roblox_studio.official_mcp import official_environment_diagnostics; print(json.dumps(official_environment_diagnostics(), indent=2, sort_keys=True))"
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+          $json | Set-Content -Path $profilePath -Encoding utf8
       - name: Reset runner Studio
         shell: pwsh
         run: |
@@ -40,6 +86,34 @@ jobs:
           ROBLOX_STUDIO_PLACE: ${{ inputs.place }}
           DCC_MCP_ROBLOX_SMOKE_PORT: "9001"
           DCC_MCP_ROBLOX_SMOKE_WAIT_SECS: "60"
+          DCC_MCP_ROBLOX_PLAY_WAIT_SECS: "180"
+          DCC_MCP_ROBLOX_PLAY_START_RETRIES: "1"
+          DCC_MCP_ROBLOX_AUTO_STOP_AFTER: "240"
+          DCC_MCP_ROBLOX_DEFAULT_PACKAGE: "1"
+          DCC_MCP_ROBLOX_PACKAGE: "manhattan-dash"
+          DCC_MCP_ROBLOX_EXPECT_GAME: "ManhattanReplica"
+          DCC_MCP_ROBLOX_EXPECT_SCRIPT_PREFIX: "ManhattanDash"
+          DCC_MCP_ROBLOX_EXPECT_GAME_SCRIPT: "ManhattanDashGame"
+          DCC_MCP_ROBLOX_EXPECT_HUD_SCRIPT: "ManhattanDashHUD"
+          DCC_MCP_ROBLOX_SMOKE_CLOSE_STUDIO: "1"
+          DCC_MCP_ROBLOX_DIAGNOSTIC_DIR: live-studio-diagnostics
+        run: |
+          $logPath = Join-Path $env:GITHUB_WORKSPACE "live-studio-smoke.log"
+          & $env:DCC_MCP_PYTHON scripts/live_smoke.py --launch-studio --install-plugin --diagnostic-dir live-studio-diagnostics 2>&1 | Tee-Object -FilePath $logPath
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+      - name: Probe official Studio MCP
+        continue-on-error: ${{ inputs.require_official != true }}
+        shell: pwsh
+        env:
+          ROBLOX_STUDIO_EXE: ${{ inputs.studio_exe }}
+          ROBLOX_STUDIO_PLACE: ${{ inputs.place }}
+          DCC_MCP_ROBLOX_SMOKE_PORT: "9001"
+          DCC_MCP_ROBLOX_SMOKE_WAIT_SECS: "60"
+          DCC_MCP_ROBLOX_PLAY_WAIT_SECS: "180"
+          DCC_MCP_ROBLOX_PLAY_START_RETRIES: "1"
+          DCC_MCP_ROBLOX_AUTO_STOP_AFTER: "240"
           DCC_MCP_ROBLOX_DEFAULT_PACKAGE: "1"
           DCC_MCP_ROBLOX_PACKAGE: "manhattan-dash"
           DCC_MCP_ROBLOX_EXPECT_GAME: "ManhattanReplica"
@@ -49,9 +123,10 @@ jobs:
           DCC_MCP_ROBLOX_ENABLE_OFFICIAL: "1"
           DCC_MCP_ROBLOX_CREATOR_STORE_QUERY: "street light"
           DCC_MCP_ROBLOX_SMOKE_CLOSE_STUDIO: "1"
+          DCC_MCP_ROBLOX_DIAGNOSTIC_DIR: live-studio-official-diagnostics
         run: |
-          $logPath = Join-Path $env:GITHUB_WORKSPACE "live-studio-smoke.log"
-          python scripts/live_smoke.py --launch-studio --install-plugin 2>&1 | Tee-Object -FilePath $logPath
+          $logPath = Join-Path $env:GITHUB_WORKSPACE "live-studio-official-smoke.log"
+          & $env:DCC_MCP_PYTHON scripts/live_smoke.py --launch-studio --install-plugin --enable-official-mcp --diagnostic-dir live-studio-official-diagnostics 2>&1 | Tee-Object -FilePath $logPath
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -60,7 +135,12 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: live-studio-smoke-log
-          path: live-studio-smoke.log
+          path: |
+            live-studio-smoke.log
+            live-studio-diagnostics
+            live-studio-official-smoke.log
+            live-studio-official-diagnostics
+            live-studio-profile.json
           if-no-files-found: warn
       - name: Cleanup runner Studio
         if: always()

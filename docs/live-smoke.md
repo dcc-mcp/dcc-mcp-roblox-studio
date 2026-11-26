@@ -1,16 +1,18 @@
 # Live smoke test
 
-For a repeatable MCP verification, run the bundled smoke runner after the
-adapter and plugin are connected:
+For a repeatable MCP verification, run the bundled smoke runner:
 
 ```powershell
-python scripts/live_smoke.py
+python scripts/live_smoke.py --launch-studio --install-plugin --enable-official-mcp
 ```
 
-The runner checks the real stdio MCP entry point, Studio discovery, the `Part`
-schema, transaction dry-run validation, Play start and stop, Save, skills
-discovery and loading, bounded event waiting, and audit entries. The transaction
-probe remains dry-run, while Play and Save exercise the connected place.
+The runner starts the adapter and Studio, installs the bundled plugin, opens the
+default Manhattan package, selects the Studio instance containing
+`ManhattanReplica`, and checks the real stdio MCP entry point, the `Part` schema,
+transaction dry-run validation, Play start and stop, Save, skills discovery and
+loading, bounded event waiting, audit entries, and the official Creator Store
+route. The transaction probe remains dry-run, while Play and Save exercise the
+connected place.
 
 On Windows, the runner can install the bundled plugin and launch Studio without
 a manual connection:
@@ -22,19 +24,29 @@ python scripts/live_smoke.py --launch-studio --install-plugin
 Set `ROBLOX_STUDIO_PLACE` to open a specific local place. Set
 `ROBLOX_STUDIO_EXE` when Studio is installed outside the standard Roblox path.
 Set `DCC_MCP_ROBLOX_SMOKE_CLOSE_STUDIO=1` to close the process after the run.
+Set `DCC_MCP_ROBLOX_AUTO_STOP_AFTER` to let an unattended play smoke end through
+the server-side `StudioTestService` controller after the given number of seconds.
 The default bridge port is `9001`, which matches the bundled plugin. Set
 `DCC_MCP_ROBLOX_SMOKE_PORT` only when the plugin bundle is changed to use the
 same port.
 The command reports the launch PID, executable, place, plugin path, failing
 stage, adapter return code, and adapter stderr when startup or a capability
-check fails.
+check fails. It also writes `live-smoke-diagnostics.json` under
+`DCC_MCP_ROBLOX_DIAGNOSTIC_DIR`, or under `.live-smoke-diagnostics/<timestamp>`
+when that variable is unset. The report contains the official launcher status,
+bounded Studio log tails, and the Roblox Studio process snapshot.
 
-CI runs the same checks against a protocol-level fake Studio plugin with
+CI runs the same native checks against a protocol-level fake Studio plugin with
 `python scripts/ci_smoke.py`. This validates adapter startup, WebSocket hello,
 stdio MCP routing, and failure boundaries without requiring a desktop Studio
-session. A separate `workflow_dispatch` workflow runs the live runner on a
-self-hosted Windows runner labelled `roblox-studio`, where Studio can use an
-interactive desktop. It uploads the smoke log on every run.
+session. The protocol fixture also exercises the official tool discovery and
+Creator Store forwarding path. The live workflow also runs on pull requests and
+pushes to `main` on a self-hosted Windows runner labelled `roblox-studio`, where
+Studio can use an interactive desktop. Its native Studio check is the merge
+gate. A second official MCP probe runs automatically and uploads its profile,
+launcher flags, and failure diagnostics. `workflow_dispatch` accepts
+`require_official=true` when the runner's Roblox account has the official
+Studio MCP switch enabled and the probe should be strict.
 
 ## Prerequisites
 
@@ -71,10 +83,19 @@ interactive desktop. It uploads the smoke log on every run.
    `roblox_wait_for_event` with a short timeout.
 14. Call `roblox_get_audit_log` and verify the mutating operation has an
    `operation_id` and redacted arguments.
-15. Set `DCC_MCP_ROBLOX_ENABLE_OFFICIAL=1` to start the installed official
-    StudioMCP launcher alongside the adapter. The smoke then requires
+15. Set `DCC_MCP_ROBLOX_ENABLE_OFFICIAL=1`, or pass
+    `--enable-official-mcp`, to start the installed official StudioMCP launcher
+    alongside the adapter. The smoke first calls
+    `roblox_get_official_mcp_status` with `probe: true`, then requires
     `roblox_official__search_asset`, searches the Creator Store, and verifies
     the result through the adapter's `call` route.
+
+The official Studio MCP switch is a per-account Studio setting. Roblox does not
+expose it as a supported local configuration file. When it is off, the
+automatic probe records the launcher status, `tools/list` count, safe flag
+summary, and exact Studio log tail without blocking the native smoke. Set
+`require_official=true` on a manual workflow run after enabling the switch to
+make Creator Store verification a required check.
 
 For a visible end-to-end result, follow the
 [Manhattan Dash workflow](examples/manhattan-dash.md). It opens the complete

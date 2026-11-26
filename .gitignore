@@ -4,6 +4,8 @@ __pycache__/
 .coverage
 .pytest_cache/
 .ruff_cache/
+.live-smoke-diagnostics/
+live-studio-diagnostics/
 .venv/
 build/
 dist/

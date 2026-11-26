@@ -70,8 +70,26 @@ Build the local plugin model:
 python plugin/build_plugin.py
 ```
 
-Copy `plugin/RobloxStudioDccMcpPlugin.rbxmx` into the Roblox Studio local
-Plugins folder, restart Studio, and enable HTTP requests in Studio.
+For manual setup, copy `plugin/RobloxStudioDccMcpPlugin.rbxmx` into the Roblox
+Studio local Plugins folder, restart Studio, and enable HTTP requests in Studio.
+
+For a fully automated native local showcase, use the bundled smoke runner. It installs
+the plugin, opens the Manhattan package, starts the adapter, selects the correct
+Studio instance, and runs the native checks:
+
+```powershell
+python scripts/live_smoke.py --launch-studio --install-plugin
+```
+
+The official Studio MCP server is an account-level Studio setting exposed
+through Assistant > … > Manage MCP Servers. The runner detects a disabled
+server, records the launcher and Studio diagnostics, and completes the native
+showcase without waiting for a manual connection. Use the official probe when
+the account switch is enabled to verify Creator Store forwarding as well:
+
+```powershell
+python scripts/live_smoke.py --launch-studio --install-plugin --enable-official-mcp
+```
 
 Start the adapter with official compatibility enabled:
 
@@ -99,6 +117,7 @@ use the `studio_id` contract defined by the installed official server.
 ## Native DCC-MCP tools
 
 - `roblox_list_studios`
+- `roblox_get_official_mcp_status`
 - `roblox_get_studio_state`
 - `roblox_search_game_tree`
 - `roblox_inspect_instance`
@@ -146,6 +165,10 @@ the adapter queries `tools/list` from the installed `StudioMCP` process and
 surfaces the current official schemas without hard-coding a stale tool list.
 The exposed names are prefixed with `roblox_official__` so native and official
 routes remain unambiguous.
+
+Use `roblox_get_official_mcp_status` with `probe: true` to verify the launcher,
+live process, stderr tail, and discovered tool count before calling an official
+tool.
 
 The compatibility route covers the official categories, including script
 operations, DataModel exploration, Luau execution, asset search and insert,

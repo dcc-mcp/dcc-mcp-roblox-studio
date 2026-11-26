@@ -6,8 +6,10 @@ import asyncio
 import json
 import os
 import socket
+import sys
+import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import websockets
 from live_smoke import McpProcess, run_checks
@@ -75,6 +77,44 @@ async def fake_studio(websocket: Any) -> None:
         )
 
 
+def fake_official_command() -> tuple[tempfile.TemporaryDirectory[str], str]:
+    """Build a tiny official-server fixture for CI compatibility coverage."""
+    directory = tempfile.TemporaryDirectory(prefix="roblox-official-ci-")
+    script = Path(directory.name) / "fake_official_mcp.py"
+    script.write_text(
+        """
+import json
+import sys
+
+TOOLS = [
+    {"name": "search_asset", "description": "Search Creator Store", "inputSchema": {"type": "object"}},
+    {"name": "insert_asset", "description": "Insert Creator Store asset", "inputSchema": {"type": "object"}},
+]
+
+for line in sys.stdin:
+    request = json.loads(line)
+    method = request.get("method")
+    if method == "notifications/initialized":
+        continue
+    if method == "initialize":
+        result = {"protocolVersion": "2025-03-26", "capabilities": {}}
+    elif method == "tools/list":
+        result = {"tools": TOOLS}
+    elif method == "tools/call":
+        params = request.get("params", {})
+        result = {
+            "content": [{"type": "text", "text": json.dumps({"asset_id": 123, "params": params})}],
+            "isError": False,
+        }
+    else:
+        result = {}
+    print(json.dumps({"jsonrpc": "2.0", "id": request.get("id"), "result": result}), flush=True)
+""",
+        encoding="utf-8",
+    )
+    return directory, f"{sys.executable} {script}"
+
+
 async def run() -> Dict[str, Any]:
     for key, value in {
         "DCC_MCP_ROBLOX_EXPECT_GAME": "ManhattanReplica",
@@ -84,9 +124,16 @@ async def run() -> Dict[str, Any]:
     }.items():
         os.environ.setdefault(key, value)
     port = free_port()
-    adapter = McpProcess(port)
+    official_directory, official_command = fake_official_command()
+    old_environment = {
+        key: os.environ.get(key) for key in ("DCC_MCP_ROBLOX_ENABLE_OFFICIAL", "DCC_MCP_ROBLOX_OFFICIAL_MCP")
+    }
+    os.environ["DCC_MCP_ROBLOX_ENABLE_OFFICIAL"] = "1"
+    os.environ["DCC_MCP_ROBLOX_OFFICIAL_MCP"] = official_command
+    adapter: Optional[McpProcess] = None
     plugin = None
     try:
+        adapter = McpProcess(port, enable_official=True)
         for _ in range(30):
             try:
                 plugin = await websockets.connect(f"ws://127.0.0.1:{port}")
@@ -97,13 +144,21 @@ async def run() -> Dict[str, Any]:
             raise RuntimeError("fake Studio could not connect to adapter")
         plugin_task = asyncio.create_task(fake_studio(plugin))
         try:
+            assert adapter is not None
             return await asyncio.to_thread(run_checks, adapter.call)
         finally:
             plugin_task.cancel()
             await asyncio.gather(plugin_task, return_exceptions=True)
             await plugin.close()
     finally:
-        adapter.close()
+        if adapter is not None:
+            adapter.close()
+        official_directory.cleanup()
+        for key, value in old_environment.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 if __name__ == "__main__":

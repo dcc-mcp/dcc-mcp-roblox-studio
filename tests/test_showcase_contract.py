@@ -15,11 +15,16 @@ def test_live_smoke_runner_has_protocol_probe_and_diagnostics() -> None:
     assert '"roblox_get_audit_log"' in source
     assert '"roblox_start_stop_play"' in source
     assert '"roblox_save_place"' in source
+    assert 'candidate.get("is_running") is True' in source
+    assert "DCC_MCP_ROBLOX_PLAY_START_RETRIES" in source
     assert 'checks = ["schema", "dry_run", "play", "save"]' in source
     assert "--launch-studio" in source
     assert "--install-plugin" in source
     assert "DCC_MCP_ROBLOX_DEFAULT_PACKAGE" in source
+    assert "configure_automatic_showcase_defaults" in source
     assert "DCC_MCP_ROBLOX_EXPECT_GAME" in source
+    assert "roblox_get_official_mcp_status" in source
+    assert "DCC_MCP_ROBLOX_DIAGNOSTIC_DIR" in source
     assert "smoke stage" in source
     assert "adapter_stderr" in source
 
@@ -28,14 +33,27 @@ def test_ci_protocol_smoke_is_registered() -> None:
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "protocol-smoke" in workflow
     assert "python scripts/ci_smoke.py" in workflow
+    ci_smoke = (ROOT / "scripts" / "ci_smoke.py").read_text(encoding="utf-8")
+    assert "fake_official_command" in ci_smoke
+    assert "DCC_MCP_ROBLOX_ENABLE_OFFICIAL" in ci_smoke
 
     live_workflow = (ROOT / ".github" / "workflows" / "live-studio-smoke.yml").read_text(encoding="utf-8")
+    assert "pull_request" in live_workflow
+    assert "branches: [main]" in live_workflow
     assert "workflow_dispatch" in live_workflow
+    assert "require_official" in live_workflow
     assert "roblox-studio" in live_workflow
     assert "--launch-studio --install-plugin" in live_workflow
     assert "Reset runner Studio" in live_workflow
     assert "DCC_MCP_ROBLOX_DEFAULT_PACKAGE" in live_workflow
+    assert "DCC_MCP_ROBLOX_AUTO_STOP_AFTER" in live_workflow
     assert "DCC_MCP_ROBLOX_EXPECT_GAME" in live_workflow
+    assert "--enable-official-mcp" in live_workflow
+    assert "Probe official Studio MCP" in live_workflow
+    assert "Resolve Studio installation" in live_workflow
+    assert "Capture official MCP profile" in live_workflow
+    assert "live-studio-profile.json" in live_workflow
+    assert "live-studio-diagnostics" in live_workflow
     assert "upload-artifact" in live_workflow
 
 

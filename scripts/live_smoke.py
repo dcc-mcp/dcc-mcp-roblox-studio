@@ -5,20 +5,82 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
+from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+
+from dcc_mcp_roblox_studio.official_mcp import official_environment_diagnostics
 
 ROOT = Path(__file__).parents[1]
 
 
+def redact(text: str) -> str:
+    """Keep failure reports useful without copying credential-shaped values."""
+    return re.sub(
+        r"(?i)(token|secret|password|authorization|bearer)\s*[:=]\s*[^\s,;]+",
+        r"\1=<redacted>",
+        text,
+    )
+
+
+def diagnostic_directory() -> Path:
+    """Return the configured directory for machine-readable smoke evidence."""
+    configured = os.environ.get("DCC_MCP_ROBLOX_DIAGNOSTIC_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return ROOT / ".live-smoke-diagnostics" / stamp
+
+
+def recent_studio_logs(limit: int = 3) -> list[Dict[str, Any]]:
+    """Collect bounded tails from the most recent Studio logs."""
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if not local_app_data:
+        return []
+    log_root = Path(local_app_data) / "Roblox" / "logs"
+    entries: list[Dict[str, Any]] = []
+    for path in sorted(log_root.glob("*_Studio_*_last.log"), key=lambda item: item.stat().st_mtime, reverse=True)[
+        :limit
+    ]:
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError as exc:
+            entries.append({"name": path.name, "error": str(exc)})
+            continue
+        entries.append({"name": path.name, "tail": redact("\n".join(lines[-80:]))})
+    return entries
+
+
+def process_snapshot() -> str:
+    """Return a bounded process listing useful for CI failure diagnosis."""
+    if os.name != "nt":
+        return "process snapshot unavailable outside Windows"
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq RobloxStudioBeta.exe", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"process snapshot failed: {exc}"
+    return redact(result.stdout[-4000:])
+
+
 class McpProcess:
-    def __init__(self, port: int) -> None:
+    def __init__(self, port: int, *, enable_official: bool = False) -> None:
         command = [sys.executable, "-m", "dcc_mcp_roblox_studio.server", "--ws-port", str(port)]
-        if os.environ.get("DCC_MCP_ROBLOX_ENABLE_OFFICIAL") == "1":
+        if enable_official:
             command.append("--enable-official-mcp")
         self.process = subprocess.Popen(
             command,
@@ -32,6 +94,9 @@ class McpProcess:
         )
         self.request_id = 0
         self.adapter_stderr = self.process.stderr
+        self._stderr_lines: "deque[str]" = deque(maxlen=200)
+        self._stderr_thread = threading.Thread(target=self._pump_stderr, daemon=True, name="roblox-smoke-stderr")
+        self._stderr_thread.start()
 
     def call(self, method: str, params: Dict[str, Any]) -> Dict[str, Any]:
         self.request_id += 1
@@ -56,23 +121,35 @@ class McpProcess:
         return json.loads(result["content"][0]["text"]) if "content" in result else result
 
     def diagnostics(self, message: str) -> str:
-        error_output = "adapter still running"
-        if self.process.poll() is not None and self.adapter_stderr:
-            error_output = self.adapter_stderr.read()
         return json.dumps(
             {
                 "message": message,
                 "returncode": self.process.poll(),
-                "adapter_stderr": error_output[-4000:],
+                "adapter_stderr": redact("".join(self._stderr_lines)[-4000:]),
             },
             sort_keys=True,
         )
 
     def close(self) -> None:
         if self.process.stdin:
-            self.process.stdin.close()
-        self.process.terminate()
-        self.process.wait(timeout=10)
+            try:
+                self.process.stdin.close()
+            except OSError:
+                pass
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=5)
+        self._stderr_thread.join(timeout=1)
+
+    def _pump_stderr(self) -> None:
+        if self.adapter_stderr is None:
+            return
+        for line in self.adapter_stderr:
+            self._stderr_lines.append(line)
 
 
 def locate_studio() -> Path:
@@ -84,13 +161,37 @@ def locate_studio() -> Path:
         raise RuntimeError(f"ROBLOX_STUDIO_EXE does not exist: {executable}")
     if os.name != "nt":
         raise RuntimeError("automatic Studio launch is supported on Windows only")
+    version_roots = []
     local_app_data = os.environ.get("LOCALAPPDATA")
-    if not local_app_data:
-        raise RuntimeError("LOCALAPPDATA is unavailable, set ROBLOX_STUDIO_EXE")
-    versions = Path(local_app_data) / "Roblox" / "Versions"
-    candidates = sorted(versions.glob("*/RobloxStudioBeta.exe"), key=lambda path: path.stat().st_mtime)
+    if local_app_data:
+        version_roots.append(Path(local_app_data) / "Roblox" / "Versions")
+    for variable in ("ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"):
+        program_files = os.environ.get(variable)
+        if program_files:
+            version_roots.append(Path(program_files) / "Roblox" / "Versions")
+    # GitHub Actions service accounts may not inherit the interactive user's
+    # ProgramFiles variables. Keep the documented Windows install roots as a
+    # deterministic fallback, including the path used by the self-hosted
+    # roblox-studio runner.
+    version_roots.extend(
+        [
+            Path(r"C:\Program Files\Roblox\Versions"),
+            Path(r"C:\Program Files (x86)\Roblox\Versions"),
+        ]
+    )
+    candidates = sorted(
+        {
+            candidate
+            for versions in version_roots
+            if versions.is_dir()
+            for candidate in versions.glob("*/RobloxStudioBeta.exe")
+            if candidate.is_file()
+        },
+        key=lambda path: path.stat().st_mtime,
+    )
     if not candidates:
-        raise RuntimeError(f"RobloxStudioBeta.exe was not found under {versions}")
+        locations = ", ".join(str(root) for root in version_roots)
+        raise RuntimeError(f"RobloxStudioBeta.exe was not found under {locations}")
     return candidates[-1]
 
 
@@ -133,6 +234,59 @@ def launch_studio(install: bool) -> subprocess.Popen[str]:
         file=sys.stderr,
     )
     return process
+
+
+def configure_automatic_showcase_defaults(auto_launch: bool) -> None:
+    """Make the one-command runner exercise the checked-in playable package."""
+    if not auto_launch:
+        return
+    defaults = {
+        "DCC_MCP_ROBLOX_DEFAULT_PACKAGE": "1",
+        "DCC_MCP_ROBLOX_PACKAGE": "manhattan-dash",
+        "DCC_MCP_ROBLOX_EXPECT_GAME": "ManhattanReplica",
+        "DCC_MCP_ROBLOX_EXPECT_SCRIPT_PREFIX": "ManhattanDash",
+        "DCC_MCP_ROBLOX_EXPECT_GAME_SCRIPT": "ManhattanDashGame",
+        "DCC_MCP_ROBLOX_EXPECT_HUD_SCRIPT": "ManhattanDashHUD",
+    }
+    for key, value in defaults.items():
+        os.environ.setdefault(key, value)
+
+
+def write_diagnostics(
+    message: str,
+    *,
+    client: McpProcess,
+    studio: Optional[subprocess.Popen[str]],
+    auto_launch: bool,
+    install: bool,
+    official_enabled: bool,
+) -> Path:
+    """Persist bounded failure context so CI failures can be diagnosed offline."""
+    directory = diagnostic_directory()
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "message": redact(message),
+        "auto_launch": auto_launch,
+        "install_plugin": install,
+        "adapter": json.loads(client.diagnostics(message)),
+        "studio": {
+            "pid": studio.pid if studio is not None else None,
+            "returncode": studio.poll() if studio is not None else None,
+        },
+        "environment": {
+            "studio_exe": os.environ.get("ROBLOX_STUDIO_EXE"),
+            "studio_place": os.environ.get("ROBLOX_STUDIO_PLACE"),
+            "official_enabled": official_enabled,
+            "official_command": os.environ.get("DCC_MCP_ROBLOX_OFFICIAL_MCP"),
+            "expected_game": os.environ.get("DCC_MCP_ROBLOX_EXPECT_GAME"),
+        },
+        "official_profile": official_environment_diagnostics(),
+        "process_snapshot": process_snapshot(),
+        "studio_logs": recent_studio_logs(),
+    }
+    report = directory / "live-smoke-diagnostics.json"
+    report.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return report
 
 
 def run_checks(call: Any) -> Dict[str, Any]:
@@ -190,22 +344,37 @@ def run_checks(call: Any) -> Dict[str, Any]:
             )
         return str(matches[0])
 
-    def wait_for_play_state(expected: bool) -> Dict[str, Any]:
-        deadline = time.monotonic() + float(os.environ.get("DCC_MCP_ROBLOX_PLAY_WAIT_SECS", "30"))
+    def wait_for_play_state(
+        expected: bool,
+        target_studio_id: Optional[str] = None,
+        timeout_secs: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        wait_secs = timeout_secs
+        if wait_secs is None:
+            wait_secs = float(os.environ.get("DCC_MCP_ROBLOX_PLAY_WAIT_SECS", "30"))
+        deadline = time.monotonic() + wait_secs
         state: Dict[str, Any] = {}
         last_error = ""
+        selected_studio_id = target_studio_id or studio_id
+
+        def is_playing(candidate: Dict[str, Any]) -> bool:
+            # Studio can keep the plugin in the Edit data model while its
+            # StudioTestService play session is active. The lifecycle flag is
+            # the reliable signal across both native and CI runners.
+            return candidate.get("is_running") is True
+
         while time.monotonic() < deadline:
             try:
                 state = check(
                     "play state",
                     "tools/call",
-                    {"name": "roblox_get_studio_state", "arguments": {"studio_id": studio_id}},
+                    {"name": "roblox_get_studio_state", "arguments": {"studio_id": selected_studio_id}},
                 )
             except RuntimeError as exc:
                 last_error = str(exc)
                 time.sleep(0.25)
                 continue
-            if state.get("is_running") is expected:
+            if is_playing(state) is expected:
                 return state
             time.sleep(0.25)
         raise RuntimeError(
@@ -264,26 +433,73 @@ def run_checks(call: Any) -> Dict[str, Any]:
     require(dry_run.get("dry_run") is True, "transaction dry-run", f"unexpected result: {dry_run}")
     require(dry_run.get("valid") is True, "transaction dry-run", f"unexpected result: {dry_run}")
 
-    play_started = check(
-        "play start",
-        "tools/call",
-        {
-            "name": "roblox_start_stop_play",
-            "arguments": {"studio_id": studio_id, "action": "start"},
-        },
+    auto_stop_after: Optional[float] = None
+    configured_auto_stop = os.environ.get("DCC_MCP_ROBLOX_AUTO_STOP_AFTER", "").strip()
+    if configured_auto_stop:
+        try:
+            auto_stop_after = float(configured_auto_stop)
+        except ValueError as exc:
+            raise RuntimeError(f"invalid DCC_MCP_ROBLOX_AUTO_STOP_AFTER: {configured_auto_stop!r}") from exc
+
+    play_arguments = {"studio_id": studio_id, "action": "start"}
+    if auto_stop_after is not None:
+        play_arguments["auto_stop_after"] = auto_stop_after
+
+    start_retries = int(os.environ.get("DCC_MCP_ROBLOX_PLAY_START_RETRIES", "1"))
+    if start_retries < 0:
+        raise RuntimeError(f"invalid DCC_MCP_ROBLOX_PLAY_START_RETRIES: {start_retries}")
+    play_started: Dict[str, Any] = {}
+    play_start_error: Optional[Exception] = None
+    for attempt in range(start_retries + 1):
+        play_started = check(
+            "play start",
+            "tools/call",
+            {
+                "name": "roblox_start_stop_play",
+                "arguments": play_arguments,
+            },
+        )
+        require(play_started.get("action") == "start", "play start", f"unexpected result: {play_started}")
+        try:
+            wait_for_play_state(True)
+            play_start_error = None
+            break
+        except RuntimeError as exc:
+            play_start_error = exc
+            if attempt < start_retries:
+                time.sleep(1)
+    if play_start_error is not None:
+        raise play_start_error
+    running_studio_id = next(
+        (
+            item["studio_id"]
+            for item in check(
+                "running studio discovery",
+                "tools/call",
+                {"name": "roblox_list_studios", "arguments": {}},
+            )["studios"]
+            if item.get("studio_id") and item.get("data_model_type") == "PlayServer"
+        ),
+        studio_id,
     )
-    require(play_started.get("action") == "start", "play start", f"unexpected result: {play_started}")
-    wait_for_play_state(True)
-    play_stopped = check(
-        "play stop",
-        "tools/call",
-        {
-            "name": "roblox_start_stop_play",
-            "arguments": {"studio_id": studio_id, "action": "stop"},
-        },
-    )
+    try:
+        play_stopped = check(
+            "play stop",
+            "tools/call",
+            {
+                "name": "roblox_start_stop_play",
+                "arguments": {"studio_id": running_studio_id, "action": "stop"},
+            },
+        )
+    except RuntimeError as exc:
+        if auto_stop_after is None:
+            raise
+        play_stopped = {"action": "stop", "pending": True, "fallback": "auto_stop", "error": str(exc)}
     require(play_stopped.get("action") == "stop", "play stop", f"unexpected result: {play_stopped}")
-    wait_for_play_state(False)
+    stop_wait_secs = float(os.environ.get("DCC_MCP_ROBLOX_PLAY_WAIT_SECS", "30"))
+    if auto_stop_after is not None:
+        stop_wait_secs = max(stop_wait_secs, auto_stop_after + 5)
+    wait_for_play_state(False, timeout_secs=stop_wait_secs)
     saved = check(
         "save place",
         "tools/call",
@@ -343,14 +559,24 @@ def run_checks(call: Any) -> Dict[str, Any]:
     )
     require(creator_store.get("loaded") is True, "creator store skill", f"unexpected result: {creator_store}")
 
+    official_status: Optional[Dict[str, Any]] = None
     if os.environ.get("DCC_MCP_ROBLOX_ENABLE_OFFICIAL") == "1":
+        official_status = check(
+            "official MCP status",
+            "tools/call",
+            {
+                "name": "roblox_get_official_mcp_status",
+                "arguments": {"probe": True},
+            },
+        )
         official_tools = check("official tools", "tools/list", {}).get("tools", [])
         official_names = {tool.get("name") for tool in official_tools}
         require(
             "roblox_official__search_asset" in official_names,
             "official tools",
             "search_asset is missing. Enable Assistant > … > Manage MCP Servers > "
-            f"Enable Studio as MCP server, then retry; available_names={sorted(official_names)}",
+            f"Enable Studio as MCP server, then retry; status={official_status}; "
+            f"available_names={sorted(official_names)}",
         )
         official_result = check(
             "creator store search",
@@ -393,23 +619,39 @@ def run_checks(call: Any) -> Dict[str, Any]:
         "studio_id": studio_id,
         "checks": checks,
         "save_result": "saved" if saved.get("saved") is True else saved["reason"],
+        "official_mcp": official_status,
     }
 
 
-def run(auto_launch: bool = False, install: bool = False) -> None:
+def run(auto_launch: bool = False, install: bool = False, require_official: bool = False) -> None:
+    configure_automatic_showcase_defaults(auto_launch)
     port = int(os.environ.get("DCC_MCP_ROBLOX_SMOKE_PORT", "9001"))
-    client = McpProcess(port)
+    official_enabled = require_official or os.environ.get("DCC_MCP_ROBLOX_ENABLE_OFFICIAL") == "1"
+    client = McpProcess(port, enable_official=official_enabled)
     studio = None
     try:
         if auto_launch:
             studio = launch_studio(install)
         print(json.dumps(run_checks(client.call)))
     except Exception as exc:
-        raise RuntimeError(client.diagnostics(str(exc))) from exc
+        report = write_diagnostics(
+            str(exc),
+            client=client,
+            studio=studio,
+            auto_launch=auto_launch,
+            install=install,
+            official_enabled=official_enabled,
+        )
+        raise RuntimeError(f"{client.diagnostics(str(exc))}; diagnostics={report}") from exc
     finally:
         client.close()
         if studio is not None and os.environ.get("DCC_MCP_ROBLOX_SMOKE_CLOSE_STUDIO") == "1":
-            studio.terminate()
+            if studio.poll() is None:
+                studio.terminate()
+                try:
+                    studio.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    studio.kill()
 
 
 if __name__ == "__main__":
@@ -420,8 +662,20 @@ if __name__ == "__main__":
     parser.add_argument(
         "--install-plugin", action="store_true", help="Install the bundled plugin before launching Studio."
     )
+    parser.add_argument(
+        "--enable-official-mcp",
+        action="store_true",
+        help="Start the adapter with Roblox Studio's official MCP compatibility route enabled.",
+    )
+    parser.add_argument(
+        "--diagnostic-dir",
+        help="Directory for live-smoke-diagnostics.json on failure.",
+    )
     options = parser.parse_args()
+    if options.diagnostic_dir:
+        os.environ["DCC_MCP_ROBLOX_DIAGNOSTIC_DIR"] = options.diagnostic_dir
     run(
         auto_launch=options.launch_studio or os.environ.get("DCC_MCP_ROBLOX_AUTO_LAUNCH") == "1",
         install=options.install_plugin,
+        require_official=options.enable_official_mcp,
     )

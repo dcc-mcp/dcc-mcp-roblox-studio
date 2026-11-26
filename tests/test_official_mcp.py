@@ -38,6 +38,9 @@ for line in sys.stdin:
     try:
         tools = proxy.list_tools()
         assert tools[0]["name"] == "roblox_official__official_ping"
+        status = proxy.status(probe=True)
+        assert status["ready"] is True
+        assert status["tool_names"] == ["roblox_official__official_ping"]
         result = proxy.call("roblox_official__official_ping", {"studio_id": "studio-1"})
         assert result["isError"] is False
         assert "studio-1" in result["content"][0]["text"]

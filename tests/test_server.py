@@ -26,6 +26,9 @@ class FakeOfficial:
     def call(self, name, arguments):
         return {"name": name, "arguments": arguments}
 
+    def status(self, *, probe=False):
+        return {"enabled": True, "ready": bool(probe), "tool_count": 1}
+
 
 class FakeBridge:
     def __init__(self):
@@ -269,6 +272,27 @@ def test_creator_store_skill_describes_and_routes_official_tool(capsys) -> None:
     call_payload = json.loads(call_response["result"]["content"][0]["text"])
     assert call_payload["name"] == "roblox_official__search_asset"
     assert call_payload["arguments"]["scope"] == "creator_store"
+
+
+def test_official_mcp_status_is_available_through_the_native_route(capsys) -> None:
+    asyncio.run(
+        handle_mcp_message(
+            FakeBridge(),
+            {
+                "jsonrpc": "2.0",
+                "id": 17,
+                "method": "tools/call",
+                "params": {
+                    "name": "roblox_get_official_mcp_status",
+                    "arguments": {"probe": True},
+                },
+            },
+            FakeOfficial(),
+        )
+    )
+    response = json.loads(capsys.readouterr().out)
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload == {"enabled": True, "ready": True, "tool_count": 1}
 
 
 def test_event_filter_wait_and_audit_are_available(capsys) -> None:

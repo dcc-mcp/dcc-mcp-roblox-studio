@@ -34,6 +34,8 @@ def test_plugin_source_contains_typed_operations() -> None:
     ):
         assert method in source
     assert "task.spawn" in source
+    assert "auto_stop_after" in source
+    assert "Enum.RunContext.Server" in source
     assert 'return {action = "start", pending = true}' in source
     assert 'reason = "unpublished_local_place"' in source
 

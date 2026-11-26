@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import shlex
 import subprocess
 import threading
+from collections import deque
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -39,6 +41,110 @@ def _command_args(command: str) -> List[str]:
     return parts
 
 
+def _redact(text: str) -> str:
+    """Remove credential-shaped values before diagnostic text is exposed."""
+    return re.sub(
+        r"(?i)(token|secret|password|authorization|bearer)\s*[:=]\s*[^\s,;]+",
+        r"\1=<redacted>",
+        text,
+    )
+
+
+def _launcher_path(command: Optional[str]) -> Optional[Path]:
+    """Return the configured launcher path when the command names a file."""
+    if not command:
+        return None
+    normalized = command.strip().strip('"')
+    if os.name == "nt" and normalized.lower().endswith((".bat", ".cmd")):
+        candidate = Path(normalized).expanduser()
+        return candidate if candidate.is_file() else None
+    try:
+        first = _command_args(command)[0]
+    except (IndexError, ValueError):
+        return None
+    candidate = Path(first).expanduser()
+    return candidate if candidate.is_file() else None
+
+
+def _launcher_binary(command: Optional[str]) -> Optional[Path]:
+    """Resolve the executable behind Roblox's Windows batch launcher."""
+    launcher = _launcher_path(command)
+    if launcher is None:
+        return None
+    if launcher.suffix.lower() not in {".bat", ".cmd"}:
+        return launcher
+    try:
+        text = launcher.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    candidates = re.findall(r'"([^"\r\n]*StudioMCP\.exe)"', text, flags=re.IGNORECASE)
+    for value in candidates:
+        candidate = Path(value).expanduser()
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _file_summary(path: Path) -> Dict[str, Any]:
+    """Return metadata for a local support file without exposing its contents."""
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        return {"path": str(path), "exists": False, "error": str(exc)}
+    return {"path": str(path), "exists": True, "size": stat.st_size}
+
+
+def official_environment_diagnostics(command: Optional[str] = None) -> Dict[str, Any]:
+    """Collect safe, local diagnostics for the installed official MCP launcher."""
+    local_app_data = os.environ.get("LOCALAPPDATA", "")
+    roblox_root = Path(local_app_data) / "Roblox" if local_app_data else Path()
+    client_settings = roblox_root / "ClientSettings" / "ClientAppSettings.json"
+    studio_settings = roblox_root / "ClientSettings" / "StudioAppSettings.json"
+    auth_token = roblox_root / "StudioMCP" / "auth.token"
+    result: Dict[str, Any] = {
+        "client_settings": _file_summary(client_settings),
+        "studio_settings": _file_summary(studio_settings),
+        "auth_token": _file_summary(auth_token),
+    }
+    if auth_token.is_file():
+        try:
+            result["auth_token"]["length"] = len(auth_token.read_bytes())
+        except OSError as exc:
+            result["auth_token"]["read_error"] = str(exc)
+
+    if client_settings.is_file():
+        try:
+            settings = json.loads(client_settings.read_text(encoding="utf-8"))
+            result["client_settings"]["mcp_flags"] = {
+                str(key): value for key, value in settings.items() if str(key).startswith("FFlagStudioMCP")
+            }
+        except (OSError, json.JSONDecodeError) as exc:
+            result["client_settings"]["parse_error"] = str(exc)
+
+    binary = _launcher_binary(command or default_official_command())
+    result["launcher_binary"] = str(binary) if binary else None
+    if binary is None or binary.stem.lower() != "studiomcp":
+        return result
+    try:
+        completed = subprocess.run(
+            [str(binary), "--print-flags"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            check=False,
+        )
+        result["launcher_flags"] = {
+            "returncode": completed.returncode,
+            "stdout": _redact(completed.stdout[-6000:]),
+            "stderr": _redact(completed.stderr[-2000:]),
+        }
+    except (OSError, subprocess.SubprocessError) as exc:
+        result["launcher_flags"] = {"error": str(exc)}
+    return result
+
+
 class OfficialMcpProxy:
     """Serialize MCP requests to the official StudioMCP stdio process.
 
@@ -60,9 +166,12 @@ class OfficialMcpProxy:
         self._process: Optional[subprocess.Popen[str]] = None
         self._stdout_queue: Optional[queue.Queue[Optional[str]]] = None
         self._reader_thread: Optional[threading.Thread] = None
+        self._stderr_lines: "deque[str]" = deque(maxlen=100)
+        self._stderr_thread: Optional[threading.Thread] = None
         self._lock = threading.RLock()
         self._next_id = 0
         self._tools: Optional[List[Dict[str, Any]]] = None
+        self._last_error: Optional[str] = None
 
     @property
     def enabled(self) -> bool:
@@ -84,12 +193,13 @@ class OfficialMcpProxy:
                     _command_args(self.command),
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
                     text=True,
                     encoding="utf-8",
                     errors="replace",
                     bufsize=1,
                 )
+                self._stderr_lines.clear()
                 self._stdout_queue = queue.Queue()
                 self._reader_thread = threading.Thread(
                     target=self._pump_stdout,
@@ -98,6 +208,13 @@ class OfficialMcpProxy:
                     name="roblox-official-mcp-reader",
                 )
                 self._reader_thread.start()
+                self._stderr_thread = threading.Thread(
+                    target=self._pump_stderr,
+                    args=(self._process,),
+                    daemon=True,
+                    name="roblox-official-mcp-stderr-reader",
+                )
+                self._stderr_thread.start()
                 self._request_locked(
                     "initialize",
                     {
@@ -107,7 +224,9 @@ class OfficialMcpProxy:
                     },
                 )
                 self._notify_locked("notifications/initialized", {})
-            except Exception:
+                self._last_error = None
+            except Exception as exc:
+                self._last_error = str(exc)
                 self.close()
                 raise
 
@@ -137,12 +256,51 @@ class OfficialMcpProxy:
             self._reader_thread = None
             if reader is not None:
                 reader.join(timeout=1)
+            stderr_reader = self._stderr_thread
+            self._stderr_thread = None
+            if stderr_reader is not None:
+                stderr_reader.join(timeout=1)
+
+    def status(self, *, probe: bool = False) -> Dict[str, Any]:
+        """Return safe launcher and process diagnostics for smoke runners."""
+        with self._lock:
+            launcher = _launcher_path(self.command)
+            result: Dict[str, Any] = {
+                "enabled": self.enabled,
+                "command_configured": bool(self.command),
+                "launcher": str(launcher) if launcher else self.command,
+                "launcher_exists": launcher is not None,
+                "process_id": self._process.pid if self._process is not None else None,
+                "returncode": self._process.poll() if self._process is not None else None,
+                "stderr": self._stderr_text(),
+                "last_error": self._last_error,
+                "environment": official_environment_diagnostics(self.command),
+            }
+            if not probe:
+                return result
+            try:
+                tools = self.list_tools()
+                result.update(
+                    {
+                        "ready": bool(tools),
+                        "tool_count": len(tools),
+                        "tool_names": [str(tool.get("name", "")) for tool in tools],
+                    }
+                )
+            except Exception as exc:
+                self._last_error = str(exc)
+                result.update({"ready": False, "tool_count": 0, "tool_names": [], "error": str(exc)})
+            result["process_id"] = self._process.pid if self._process is not None else None
+            result["returncode"] = self._process.poll() if self._process is not None else None
+            result["stderr"] = self._stderr_text()
+            result["last_error"] = self._last_error
+            return result
 
     def list_tools(self) -> List[Dict[str, Any]]:
         """Return official tool schemas with an adapter-owned namespace."""
         with self._lock:
             self.start()
-            if self._tools is None or not self._tools:
+            if self._tools is None:
                 result = self._request_locked("tools/list", {})
                 self._tools = list(result.get("tools", []))
             tools = []
@@ -193,10 +351,14 @@ class OfficialMcpProxy:
             try:
                 line = self._stdout_queue.get(timeout=self.timeout)
             except queue.Empty as exc:
-                raise OfficialMcpError(f"Official Roblox MCP did not reply within {self.timeout}s") from exc
+                raise OfficialMcpError(
+                    f"Official Roblox MCP did not reply within {self.timeout}s; stderr={self._stderr_text()}"
+                ) from exc
             if line is None:
                 code = process.poll()
-                raise OfficialMcpError(f"Official Roblox MCP exited before replying (code={code})")
+                raise OfficialMcpError(
+                    f"Official Roblox MCP exited before replying (code={code}); stderr={self._stderr_text()}"
+                )
             try:
                 response = json.loads(line)
             except json.JSONDecodeError:
@@ -205,7 +367,9 @@ class OfficialMcpProxy:
                 continue
             if response.get("error") is not None:
                 error = response["error"]
-                raise OfficialMcpError(str(error.get("message", "Official Roblox MCP request failed")))
+                raise OfficialMcpError(
+                    f"{error.get('message', 'Official Roblox MCP request failed')}; stderr={self._stderr_text()}"
+                )
             result = response.get("result")
             return result if isinstance(result, dict) else {"value": result}
 
@@ -226,3 +390,14 @@ class OfficialMcpProxy:
         for line in process.stdout:
             output.put(line)
         output.put(None)
+
+    def _stderr_text(self) -> str:
+        """Return a bounded stderr tail without exposing credential-shaped data."""
+        return _redact("".join(self._stderr_lines)[-2000:])
+
+    def _pump_stderr(self, process: subprocess.Popen[str]) -> None:
+        """Read official-process diagnostics without blocking MCP requests."""
+        if process.stderr is None:
+            return
+        for line in process.stderr:
+            self._stderr_lines.append(line)

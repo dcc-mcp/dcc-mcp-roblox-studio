@@ -138,6 +138,26 @@ local function instanceSummary(instance)
 	}
 end
 
+local function createAutoStopController(delaySeconds)
+	if type(delaySeconds) ~= "number" or delaySeconds <= 0 then
+		return nil
+	end
+	local controller = Instance.new("Script")
+	controller.Name = "__DccMcpPlayController_" .. string.sub(INSTANCE_ID, 1, 8)
+	controller.Disabled = false
+	controller.RunContext = Enum.RunContext.Server
+	controller.Source = string.format([[
+local StudioTestService = game:GetService("StudioTestService")
+task.delay(%s, function()
+	pcall(function()
+		StudioTestService:EndTest("dcc-mcp-auto-stop")
+	end)
+end)
+]], tostring(delaySeconds))
+	controller.Parent = game:GetService("ServerScriptService")
+	return controller
+end
+
 local function serializeValue(value)
 	local valueType = typeof(value)
 	if valueType == "Vector2" or valueType == "Vector3" then
@@ -639,13 +659,17 @@ end
 
 local handlers = {
 	["roblox.get_studio_state"] = function()
+		local studioTestService = game:GetService("StudioTestService")
+		local runService = game:GetService("RunService")
+		local editModeActive = studioTestService.EditModeActive
+		local dataModelIsEdit = runService:IsEdit()
 		return {
 			place_id = game.PlaceId,
 			game_id = game.GameId,
 			name = game.Name,
-			is_edit = game:GetService("RunService"):IsEdit(),
-			is_running = game:GetService("RunService"):IsRunning(),
-			data_model_type = "Edit",
+			is_edit = dataModelIsEdit,
+			is_running = not editModeActive,
+			data_model_type = dataModelIsEdit and "Edit" or "PlayServer",
 		}
 	end,
 	["roblox.search_game_tree"] = searchGameTree,
@@ -726,18 +750,29 @@ local handlers = {
 	end,
 	["roblox.start_stop_play"] = function(params)
 		if params.action == "start" then
+			local autoStopAfter = params.auto_stop_after
+			local controller = createAutoStopController(autoStopAfter)
 			task.spawn(function()
-				pcall(function()
-					StudioTestService:ExecutePlayModeAsync({})
+				local ok, failure = pcall(function()
+					StudioTestService:ExecutePlayModeAsync({dcc_mcp_auto_stop_after = autoStopAfter})
 				end)
+				if controller and controller.Parent then
+					controller:Destroy()
+				end
+				if not ok then
+					warn("DCC-MCP play start error: " .. tostring(failure))
+				end
 			end)
+			if autoStopAfter then
+				return {action = "start", pending = true, auto_stop_after = autoStopAfter}
+			end
 			return {action = "start", pending = true}
 		elseif params.action == "stop" then
-			local stopped = pcall(function()
+			local stopped, failure = pcall(function()
 				StudioTestService:EndTest("dcc-mcp-stop")
 			end)
 			if not stopped then
-				error("could not stop Studio play mode from the active test server")
+				error("could not stop Studio play mode: " .. tostring(failure))
 			end
 			return {action = "stop"}
 		else
