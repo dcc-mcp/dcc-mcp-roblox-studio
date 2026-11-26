@@ -349,6 +349,13 @@ def run_checks(call: Any) -> Dict[str, Any]:
         state: Dict[str, Any] = {}
         last_error = ""
         selected_studio_id = target_studio_id or studio_id
+
+        def is_playing(candidate: Dict[str, Any]) -> bool:
+            # Recent Studio builds can leave is_running=true for one or more
+            # polling cycles after the DataModel has already returned to Edit.
+            # The DataModel state is the authoritative lifecycle boundary.
+            return candidate.get("is_running") is True and candidate.get("is_edit") is not True
+
         while time.monotonic() < deadline:
             try:
                 state = check(
@@ -360,7 +367,7 @@ def run_checks(call: Any) -> Dict[str, Any]:
                 last_error = str(exc)
                 time.sleep(0.25)
                 continue
-            if state.get("is_running") is expected:
+            if is_playing(state) is expected:
                 return state
             time.sleep(0.25)
         raise RuntimeError(

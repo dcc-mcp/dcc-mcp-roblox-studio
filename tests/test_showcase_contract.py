@@ -15,6 +15,7 @@ def test_live_smoke_runner_has_protocol_probe_and_diagnostics() -> None:
     assert '"roblox_get_audit_log"' in source
     assert '"roblox_start_stop_play"' in source
     assert '"roblox_save_place"' in source
+    assert 'candidate.get("is_edit") is not True' in source
     assert 'checks = ["schema", "dry_run", "play", "save"]' in source
     assert "--launch-studio" in source
     assert "--install-plugin" in source
