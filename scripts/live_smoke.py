@@ -351,10 +351,10 @@ def run_checks(call: Any) -> Dict[str, Any]:
         selected_studio_id = target_studio_id or studio_id
 
         def is_playing(candidate: Dict[str, Any]) -> bool:
-            # Recent Studio builds can leave is_running=true for one or more
-            # polling cycles after the DataModel has already returned to Edit.
-            # The DataModel state is the authoritative lifecycle boundary.
-            return candidate.get("is_running") is True and candidate.get("is_edit") is not True
+            # Studio can keep the plugin in the Edit data model while its
+            # StudioTestService play session is active. The lifecycle flag is
+            # the reliable signal across both native and CI runners.
+            return candidate.get("is_running") is True
 
         while time.monotonic() < deadline:
             try:

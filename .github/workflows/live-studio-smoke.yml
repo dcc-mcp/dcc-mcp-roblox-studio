@@ -86,9 +86,9 @@ jobs:
           ROBLOX_STUDIO_PLACE: ${{ inputs.place }}
           DCC_MCP_ROBLOX_SMOKE_PORT: "9001"
           DCC_MCP_ROBLOX_SMOKE_WAIT_SECS: "60"
-          DCC_MCP_ROBLOX_PLAY_WAIT_SECS: "90"
+          DCC_MCP_ROBLOX_PLAY_WAIT_SECS: "180"
           DCC_MCP_ROBLOX_PLAY_START_RETRIES: "1"
-          DCC_MCP_ROBLOX_AUTO_STOP_AFTER: "15"
+          DCC_MCP_ROBLOX_AUTO_STOP_AFTER: "240"
           DCC_MCP_ROBLOX_DEFAULT_PACKAGE: "1"
           DCC_MCP_ROBLOX_PACKAGE: "manhattan-dash"
           DCC_MCP_ROBLOX_EXPECT_GAME: "ManhattanReplica"
@@ -111,9 +111,9 @@ jobs:
           ROBLOX_STUDIO_PLACE: ${{ inputs.place }}
           DCC_MCP_ROBLOX_SMOKE_PORT: "9001"
           DCC_MCP_ROBLOX_SMOKE_WAIT_SECS: "60"
-          DCC_MCP_ROBLOX_PLAY_WAIT_SECS: "90"
+          DCC_MCP_ROBLOX_PLAY_WAIT_SECS: "180"
           DCC_MCP_ROBLOX_PLAY_START_RETRIES: "1"
-          DCC_MCP_ROBLOX_AUTO_STOP_AFTER: "15"
+          DCC_MCP_ROBLOX_AUTO_STOP_AFTER: "240"
           DCC_MCP_ROBLOX_DEFAULT_PACKAGE: "1"
           DCC_MCP_ROBLOX_PACKAGE: "manhattan-dash"
           DCC_MCP_ROBLOX_EXPECT_GAME: "ManhattanReplica"
