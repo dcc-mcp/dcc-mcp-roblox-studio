@@ -344,8 +344,15 @@ def run_checks(call: Any) -> Dict[str, Any]:
             )
         return str(matches[0])
 
-    def wait_for_play_state(expected: bool, target_studio_id: Optional[str] = None) -> Dict[str, Any]:
-        deadline = time.monotonic() + float(os.environ.get("DCC_MCP_ROBLOX_PLAY_WAIT_SECS", "30"))
+    def wait_for_play_state(
+        expected: bool,
+        target_studio_id: Optional[str] = None,
+        timeout_secs: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        wait_secs = timeout_secs
+        if wait_secs is None:
+            wait_secs = float(os.environ.get("DCC_MCP_ROBLOX_PLAY_WAIT_SECS", "30"))
+        deadline = time.monotonic() + wait_secs
         state: Dict[str, Any] = {}
         last_error = ""
         selected_studio_id = target_studio_id or studio_id
@@ -489,7 +496,10 @@ def run_checks(call: Any) -> Dict[str, Any]:
             raise
         play_stopped = {"action": "stop", "pending": True, "fallback": "auto_stop", "error": str(exc)}
     require(play_stopped.get("action") == "stop", "play stop", f"unexpected result: {play_stopped}")
-    wait_for_play_state(False)
+    stop_wait_secs = float(os.environ.get("DCC_MCP_ROBLOX_PLAY_WAIT_SECS", "30"))
+    if auto_stop_after is not None:
+        stop_wait_secs = max(stop_wait_secs, auto_stop_after + 5)
+    wait_for_play_state(False, timeout_secs=stop_wait_secs)
     saved = check(
         "save place",
         "tools/call",
