@@ -438,16 +438,31 @@ def run_checks(call: Any) -> Dict[str, Any]:
     if auto_stop_after is not None:
         play_arguments["auto_stop_after"] = auto_stop_after
 
-    play_started = check(
-        "play start",
-        "tools/call",
-        {
-            "name": "roblox_start_stop_play",
-            "arguments": play_arguments,
-        },
-    )
-    require(play_started.get("action") == "start", "play start", f"unexpected result: {play_started}")
-    wait_for_play_state(True)
+    start_retries = int(os.environ.get("DCC_MCP_ROBLOX_PLAY_START_RETRIES", "1"))
+    if start_retries < 0:
+        raise RuntimeError(f"invalid DCC_MCP_ROBLOX_PLAY_START_RETRIES: {start_retries}")
+    play_started: Dict[str, Any] = {}
+    play_start_error: Optional[Exception] = None
+    for attempt in range(start_retries + 1):
+        play_started = check(
+            "play start",
+            "tools/call",
+            {
+                "name": "roblox_start_stop_play",
+                "arguments": play_arguments,
+            },
+        )
+        require(play_started.get("action") == "start", "play start", f"unexpected result: {play_started}")
+        try:
+            wait_for_play_state(True)
+            play_start_error = None
+            break
+        except RuntimeError as exc:
+            play_start_error = exc
+            if attempt < start_retries:
+                time.sleep(1)
+    if play_start_error is not None:
+        raise play_start_error
     running_studio_id = next(
         (
             item["studio_id"]
