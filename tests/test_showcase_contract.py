@@ -27,6 +27,12 @@ def test_ci_protocol_smoke_is_registered() -> None:
     assert "protocol-smoke" in workflow
     assert "python scripts/ci_smoke.py" in workflow
 
+    live_workflow = (ROOT / ".github" / "workflows" / "live-studio-smoke.yml").read_text(encoding="utf-8")
+    assert "workflow_dispatch" in live_workflow
+    assert "roblox-studio" in live_workflow
+    assert "--launch-studio --install-plugin" in live_workflow
+    assert "upload-artifact" in live_workflow
+
 
 def test_playable_showcase_contract_and_asset_attribution_exist() -> None:
     example = (ROOT / "docs" / "examples" / "neon-checkpoint-run.md").read_text(encoding="utf-8")

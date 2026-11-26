@@ -246,7 +246,7 @@ def run_checks(call: Any) -> Dict[str, Any]:
 
 
 def run(auto_launch: bool = False, install: bool = False) -> None:
-    port = int(os.environ.get("DCC_MCP_ROBLOX_SMOKE_PORT", "19091"))
+    port = int(os.environ.get("DCC_MCP_ROBLOX_SMOKE_PORT", "9001"))
     client = McpProcess(port)
     studio = None
     try:
