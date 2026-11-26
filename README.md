@@ -73,18 +73,23 @@ python plugin/build_plugin.py
 For manual setup, copy `plugin/RobloxStudioDccMcpPlugin.rbxmx` into the Roblox
 Studio local Plugins folder, restart Studio, and enable HTTP requests in Studio.
 
-For a fully automated local showcase, use the bundled smoke runner. It installs
+For a fully automated native local showcase, use the bundled smoke runner. It installs
 the plugin, opens the Manhattan package, starts the adapter, selects the correct
-Studio instance, runs the native checks, and probes the official route:
+Studio instance, and runs the native checks:
+
+```powershell
+python scripts/live_smoke.py --launch-studio --install-plugin
+```
+
+The official Studio MCP server is an account-level Studio setting exposed
+through Assistant > … > Manage MCP Servers. The runner detects a disabled
+server, records the launcher and Studio diagnostics, and completes the native
+showcase without waiting for a manual connection. Use the official probe when
+the account switch is enabled to verify Creator Store forwarding as well:
 
 ```powershell
 python scripts/live_smoke.py --launch-studio --install-plugin --enable-official-mcp
 ```
-
-The official Studio MCP server must already be enabled in the Studio profile
-through Assistant > … > Manage MCP Servers. Roblox exposes that switch as a
-Studio setting. The runner detects a disabled server and writes a diagnostic
-report instead of waiting for a manual connection.
 
 Start the adapter with official compatibility enabled:
 

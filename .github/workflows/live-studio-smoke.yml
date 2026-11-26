@@ -14,6 +14,11 @@ on:
         description: Optional absolute path to a local .rbxl place
         required: false
         type: string
+      require_official:
+        description: Require the account-level official Studio MCP switch
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -88,13 +93,36 @@ jobs:
           DCC_MCP_ROBLOX_EXPECT_SCRIPT_PREFIX: "ManhattanDash"
           DCC_MCP_ROBLOX_EXPECT_GAME_SCRIPT: "ManhattanDashGame"
           DCC_MCP_ROBLOX_EXPECT_HUD_SCRIPT: "ManhattanDashHUD"
-          DCC_MCP_ROBLOX_ENABLE_OFFICIAL: "1"
-          DCC_MCP_ROBLOX_CREATOR_STORE_QUERY: "street light"
           DCC_MCP_ROBLOX_SMOKE_CLOSE_STUDIO: "1"
           DCC_MCP_ROBLOX_DIAGNOSTIC_DIR: live-studio-diagnostics
         run: |
           $logPath = Join-Path $env:GITHUB_WORKSPACE "live-studio-smoke.log"
-          & $env:DCC_MCP_PYTHON scripts/live_smoke.py --launch-studio --install-plugin --enable-official-mcp --diagnostic-dir live-studio-diagnostics 2>&1 | Tee-Object -FilePath $logPath
+          & $env:DCC_MCP_PYTHON scripts/live_smoke.py --launch-studio --install-plugin --diagnostic-dir live-studio-diagnostics 2>&1 | Tee-Object -FilePath $logPath
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+      - name: Probe official Studio MCP
+        continue-on-error: ${{ inputs.require_official != true }}
+        shell: pwsh
+        env:
+          ROBLOX_STUDIO_EXE: ${{ inputs.studio_exe }}
+          ROBLOX_STUDIO_PLACE: ${{ inputs.place }}
+          DCC_MCP_ROBLOX_SMOKE_PORT: "9001"
+          DCC_MCP_ROBLOX_SMOKE_WAIT_SECS: "60"
+          DCC_MCP_ROBLOX_AUTO_STOP_AFTER: "15"
+          DCC_MCP_ROBLOX_DEFAULT_PACKAGE: "1"
+          DCC_MCP_ROBLOX_PACKAGE: "manhattan-dash"
+          DCC_MCP_ROBLOX_EXPECT_GAME: "ManhattanReplica"
+          DCC_MCP_ROBLOX_EXPECT_SCRIPT_PREFIX: "ManhattanDash"
+          DCC_MCP_ROBLOX_EXPECT_GAME_SCRIPT: "ManhattanDashGame"
+          DCC_MCP_ROBLOX_EXPECT_HUD_SCRIPT: "ManhattanDashHUD"
+          DCC_MCP_ROBLOX_ENABLE_OFFICIAL: "1"
+          DCC_MCP_ROBLOX_CREATOR_STORE_QUERY: "street light"
+          DCC_MCP_ROBLOX_SMOKE_CLOSE_STUDIO: "1"
+          DCC_MCP_ROBLOX_DIAGNOSTIC_DIR: live-studio-official-diagnostics
+        run: |
+          $logPath = Join-Path $env:GITHUB_WORKSPACE "live-studio-official-smoke.log"
+          & $env:DCC_MCP_PYTHON scripts/live_smoke.py --launch-studio --install-plugin --enable-official-mcp --diagnostic-dir live-studio-official-diagnostics 2>&1 | Tee-Object -FilePath $logPath
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -106,6 +134,8 @@ jobs:
           path: |
             live-studio-smoke.log
             live-studio-diagnostics
+            live-studio-official-smoke.log
+            live-studio-official-diagnostics
             live-studio-profile.json
           if-no-files-found: warn
       - name: Cleanup runner Studio

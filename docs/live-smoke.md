@@ -36,14 +36,17 @@ check fails. It also writes `live-smoke-diagnostics.json` under
 when that variable is unset. The report contains the official launcher status,
 bounded Studio log tails, and the Roblox Studio process snapshot.
 
-CI runs the same checks against a protocol-level fake Studio plugin with
+CI runs the same native checks against a protocol-level fake Studio plugin with
 `python scripts/ci_smoke.py`. This validates adapter startup, WebSocket hello,
 stdio MCP routing, and failure boundaries without requiring a desktop Studio
 session. The protocol fixture also exercises the official tool discovery and
-Creator Store forwarding path. The live workflow also runs on pull requests and pushes to `main` on a
-self-hosted Windows runner labelled `roblox-studio`, where Studio can use an
-interactive desktop. It uploads the smoke log and diagnostic directory on every
-run.
+Creator Store forwarding path. The live workflow also runs on pull requests and
+pushes to `main` on a self-hosted Windows runner labelled `roblox-studio`, where
+Studio can use an interactive desktop. Its native Studio check is the merge
+gate. A second official MCP probe runs automatically and uploads its profile,
+launcher flags, and failure diagnostics. `workflow_dispatch` accepts
+`require_official=true` when the runner's Roblox account has the official
+Studio MCP switch enabled and the probe should be strict.
 
 ## Prerequisites
 
@@ -87,11 +90,12 @@ run.
     `roblox_official__search_asset`, searches the Creator Store, and verifies
     the result through the adapter's `call` route.
 
-The official Studio MCP switch is a per-profile Studio setting. Enable it once
-through Assistant > … > Manage MCP Servers on a self-hosted runner. Every later
-CI run performs the connection and verification automatically. If the switch
-is off, the smoke exits with the launcher status and the exact Studio log tail
-in its diagnostic artifact.
+The official Studio MCP switch is a per-account Studio setting. Roblox does not
+expose it as a supported local configuration file. When it is off, the
+automatic probe records the launcher status, `tools/list` count, safe flag
+summary, and exact Studio log tail without blocking the native smoke. Set
+`require_official=true` on a manual workflow run after enabling the switch to
+make Creator Store verification a required check.
 
 For a visible end-to-end result, follow the
 [Manhattan Dash workflow](examples/manhattan-dash.md). It opens the complete

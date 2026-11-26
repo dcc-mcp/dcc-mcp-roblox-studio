@@ -39,6 +39,7 @@ def test_ci_protocol_smoke_is_registered() -> None:
     assert "pull_request" in live_workflow
     assert "branches: [main]" in live_workflow
     assert "workflow_dispatch" in live_workflow
+    assert "require_official" in live_workflow
     assert "roblox-studio" in live_workflow
     assert "--launch-studio --install-plugin" in live_workflow
     assert "Reset runner Studio" in live_workflow
@@ -46,6 +47,7 @@ def test_ci_protocol_smoke_is_registered() -> None:
     assert "DCC_MCP_ROBLOX_AUTO_STOP_AFTER" in live_workflow
     assert "DCC_MCP_ROBLOX_EXPECT_GAME" in live_workflow
     assert "--enable-official-mcp" in live_workflow
+    assert "Probe official Studio MCP" in live_workflow
     assert "Resolve Studio installation" in live_workflow
     assert "Capture official MCP profile" in live_workflow
     assert "live-studio-profile.json" in live_workflow
