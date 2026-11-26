@@ -108,6 +108,10 @@ def launch_studio(install: bool) -> subprocess.Popen[str]:
     plugin_path = install_plugin() if install else None
     executable = locate_studio()
     place = os.environ.get("ROBLOX_STUDIO_PLACE")
+    if not place and os.environ.get("DCC_MCP_ROBLOX_DEFAULT_PACKAGE") == "1":
+        package = ROOT / "artifacts" / "neon-checkpoint-run.rbxlx"
+        if package.is_file():
+            place = str(package)
     arguments = [str(executable)]
     if place:
         arguments.append(str(Path(place).expanduser()))
@@ -136,6 +140,32 @@ def run_checks(call: Any) -> Dict[str, Any]:
         except Exception as exc:
             raise RuntimeError(f"smoke stage {stage!r} failed: {exc}") from exc
 
+    def require(condition: bool, stage: str, detail: str) -> None:
+        if not condition:
+            raise RuntimeError(f"smoke stage {stage!r} failed: {detail}")
+
+    def wait_for_play_state(expected: bool) -> Dict[str, Any]:
+        deadline = time.monotonic() + float(os.environ.get("DCC_MCP_ROBLOX_PLAY_WAIT_SECS", "30"))
+        state: Dict[str, Any] = {}
+        last_error = ""
+        while time.monotonic() < deadline:
+            try:
+                state = check(
+                    "play state",
+                    "tools/call",
+                    {"name": "roblox_get_studio_state", "arguments": {"studio_id": studio_id}},
+                )
+            except RuntimeError as exc:
+                last_error = str(exc)
+                time.sleep(0.25)
+                continue
+            if state.get("is_running") is expected:
+                return state
+            time.sleep(0.25)
+        raise RuntimeError(
+            f"smoke stage 'play state' failed: expected is_running={expected}, got {state}, last_error={last_error}"
+        )
+
     check(
         "initialize",
         "initialize",
@@ -158,8 +188,12 @@ def run_checks(call: Any) -> Dict[str, Any]:
     schema = check(
         "class schema", "tools/call", {"name": "roblox_get_class_schema", "arguments": {"class_name": "Part"}}
     )
-    assert schema["known"] is True
-    assert schema["properties"]["Size"]["type"] == "Vector3"
+    require(schema.get("known") is True, "class schema", f"Part is unknown: {schema}")
+    require(
+        schema.get("properties", {}).get("Size", {}).get("type") == "Vector3",
+        "class schema",
+        f"Part.Size schema is missing: {schema}",
+    )
 
     dry_run = check(
         "transaction dry-run",
@@ -181,8 +215,8 @@ def run_checks(call: Any) -> Dict[str, Any]:
             },
         },
     )
-    assert dry_run["dry_run"] is True
-    assert dry_run["valid"] is True
+    require(dry_run.get("dry_run") is True, "transaction dry-run", f"unexpected result: {dry_run}")
+    require(dry_run.get("valid") is True, "transaction dry-run", f"unexpected result: {dry_run}")
 
     play_started = check(
         "play start",
@@ -192,16 +226,8 @@ def run_checks(call: Any) -> Dict[str, Any]:
             "arguments": {"studio_id": studio_id, "action": "start"},
         },
     )
-    assert play_started["action"] == "start"
-    play_state = check(
-        "play state",
-        "tools/call",
-        {
-            "name": "roblox_get_studio_state",
-            "arguments": {"studio_id": studio_id},
-        },
-    )
-    assert play_state["is_running"] is True
+    require(play_started.get("action") == "start", "play start", f"unexpected result: {play_started}")
+    wait_for_play_state(True)
     play_stopped = check(
         "play stop",
         "tools/call",
@@ -210,7 +236,8 @@ def run_checks(call: Any) -> Dict[str, Any]:
             "arguments": {"studio_id": studio_id, "action": "stop"},
         },
     )
-    assert play_stopped["action"] == "stop"
+    require(play_stopped.get("action") == "stop", "play stop", f"unexpected result: {play_stopped}")
+    wait_for_play_state(False)
     saved = check(
         "save place",
         "tools/call",
@@ -219,14 +246,43 @@ def run_checks(call: Any) -> Dict[str, Any]:
             "arguments": {"studio_id": studio_id, "note": "automated smoke"},
         },
     )
-    assert saved["saved"] is True
+    if saved.get("saved") is not True and saved.get("reason") != "unpublished_local_place":
+        raise RuntimeError(f"save place returned an unexpected result: {saved}")
+
+    expected_game = os.environ.get("DCC_MCP_ROBLOX_EXPECT_GAME")
+    if expected_game:
+        scene = check(
+            "package scene",
+            "tools/call",
+            {
+                "name": "roblox_search_game_tree",
+                "arguments": {"studio_id": studio_id, "query": expected_game},
+            },
+        )
+        if not any(item.get("name") == expected_game for item in scene.get("results", [])):
+            raise RuntimeError(f"package scene is missing {expected_game}: {scene}")
+        scripts = check(
+            "package scripts",
+            "tools/call",
+            {
+                "name": "roblox_script_search",
+                "arguments": {"studio_id": studio_id, "query": "NeonCheckpoint"},
+            },
+        )
+        script_names = {item.get("name") for item in scripts.get("results", [])}
+        if not {"NeonCheckpointGame", "NeonCheckpointHUD"}.issubset(script_names):
+            raise RuntimeError(f"package scripts are incomplete: {scripts}")
 
     skills = check("skill search", "tools/call", {"name": "search", "arguments": {"query": "scene"}})
-    assert any(skill["name"] == "roblox-scene-authoring" for skill in skills["skills"])
+    require(
+        any(skill.get("name") == "roblox-scene-authoring" for skill in skills.get("skills", [])),
+        "skill search",
+        f"scene authoring skill is missing: {skills}",
+    )
     loaded = check(
         "skill load", "tools/call", {"name": "load_skill", "arguments": {"skill_name": "roblox-scene-authoring"}}
     )
-    assert loaded["loaded"] is True
+    require(loaded.get("loaded") is True, "skill load", f"unexpected result: {loaded}")
 
     event = check(
         "event wait",
@@ -236,12 +292,21 @@ def run_checks(call: Any) -> Dict[str, Any]:
             "arguments": {"event_type": "__dcc_mcp_smoke_never__", "timeout_ms": 50, "poll_ms": 10},
         },
     )
-    assert event["matched"] is False
-    audit = check("audit log", "tools/call", {"name": "roblox_get_audit_log", "arguments": {"limit": 20}})
-    assert any(entry["tool"] == "roblox_scene_transaction" for entry in audit["entries"])
+    require(event.get("matched") is False, "event wait", f"unexpected result: {event}")
+    audit = check("audit log", "tools/call", {"name": "roblox_get_audit_log", "arguments": {"limit": 1000}})
+    require(
+        any(entry.get("tool") == "roblox_scene_transaction" for entry in audit.get("entries", [])),
+        "audit log",
+        f"scene transaction entry is missing: {audit}",
+    )
+    checks = ["schema", "dry_run", "play", "save"]
+    if expected_game:
+        checks.append("package")
+    checks.extend(["skills", "event_wait", "audit"])
     return {
         "studio_id": studio_id,
-        "checks": ["schema", "dry_run", "play", "save", "skills", "event_wait", "audit"],
+        "checks": checks,
+        "save_result": "saved" if saved.get("saved") is True else saved["reason"],
     }
 
 

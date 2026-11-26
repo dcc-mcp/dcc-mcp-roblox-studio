@@ -36,6 +36,7 @@ class RobloxDccBridge(DccBridge):
             "version": message.get("version"),
             "host_name": message.get("host_name"),
             "host_version": message.get("host_version"),
+            "data_model_type": message.get("data_model_type"),
             "document": message.get("document"),
             "project": message.get("project"),
             "capabilities": message.get("capabilities", {}),

@@ -190,17 +190,20 @@ real showcase capture.
 
 ## Installation evidence
 
-The images below document the plugin installation flow. They are supporting
-evidence for setup, while the executable example above demonstrates the
-adapter's value.
-
-![Roblox Studio DCC-MCP showcase](docs/assets/roblox-studio-showcase.png)
-
-![Roblox Studio installation flow](docs/assets/roblox-studio-showcase.gif)
+The repository keeps the plugin installation references under
+`docs/assets`. The playable package above is the primary example because it
+can be opened and tested directly in Roblox Studio.
 
 The game HUD reference uses the marketplace-installed `game-icons-assets`
 skill and its CC BY 3.0 `flag-objective` asset. The downloaded SVG and
 attribution metadata are kept in [docs/assets/game-icons](docs/assets/game-icons).
+
+The standalone playable package is available at
+[`artifacts/neon-checkpoint-run.rbxlx`](artifacts/neon-checkpoint-run.rbxlx).
+Open it directly in Roblox Studio and press Play. The package includes the
+course geometry, checkpoint logic, finish counter, and HUD. A local package has
+`PlaceId=0`, so the native save route reports `unpublished_local_place` until
+the place is published. The checked-in `.rbxlx` file is the local saved output.
 
 ## Standalone official route
 

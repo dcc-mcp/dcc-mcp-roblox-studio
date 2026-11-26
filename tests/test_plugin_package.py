@@ -33,6 +33,9 @@ def test_plugin_source_contains_typed_operations() -> None:
         "roblox.start_stop_play",
     ):
         assert method in source
+    assert "task.spawn" in source
+    assert 'return {action = "start", pending = true}' in source
+    assert 'reason = "unpublished_local_place"' in source
 
 
 def test_skill_package_contains_scene_authoring_contract() -> None:

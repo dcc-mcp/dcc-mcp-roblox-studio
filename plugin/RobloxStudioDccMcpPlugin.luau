@@ -8,6 +8,7 @@ local StudioService = game:GetService("StudioService")
 local StudioTestService = game:GetService("StudioTestService")
 local AssetService = game:GetService("AssetService")
 local LogService = game:GetService("LogService")
+local RunService = game:GetService("RunService")
 
 local BRIDGE_URL = "ws://127.0.0.1:9001"
 local PLUGIN_VERSION = "0.1.2" -- x-release-please-version
@@ -710,19 +711,20 @@ local handlers = {
 	end,
 	["roblox.start_stop_play"] = function(params)
 		if params.action == "start" then
-			local started = pcall(function()
-				StudioTestService:ExecutePlayModeAsync({})
+			task.spawn(function()
+				pcall(function()
+					StudioTestService:ExecutePlayModeAsync({})
+				end)
 			end)
-			if not started then
-				error("could not start Studio play mode")
-			end
+			return {action = "start", pending = true}
 		elseif params.action == "stop" then
 			local stopped = pcall(function()
-				StudioTestService:LeaveTest()
+				StudioTestService:EndTest("dcc-mcp-stop")
 			end)
 			if not stopped then
-				error("could not stop Studio play mode")
+				error("could not stop Studio play mode from the active test server")
 			end
+			return {action = "stop"}
 		else
 			error("action must be start or stop")
 		end
@@ -733,7 +735,17 @@ local handlers = {
 			AssetService:SavePlaceAsync({SaveWithoutPublish = true})
 		end)
 		if not ok then
-			error(tostring(failure))
+			local message = tostring(failure)
+			if game.PlaceId == 0 and string.find(message, "placeID is not valid", 1, true) then
+				return {
+					saved = false,
+					supported = false,
+					reason = "unpublished_local_place",
+					place_id = game.PlaceId,
+					note = params.note,
+				}
+			end
+			error(message)
 		end
 		return {saved = true, note = params.note}
 	end,
@@ -770,6 +782,9 @@ end
 local connect
 
 connect = function()
+	if not RunService:IsEdit() and RunService:IsClient() then
+		return
+	end
 	reconnectEnabled = true
 	if client then
 		client:Close()
@@ -790,6 +805,7 @@ connect = function()
 			peer_id = "studio-plugin",
 			host_name = "Roblox Studio",
 			host_version = safeStudioVersion(),
+			data_model_type = RunService:IsEdit() and "Edit" or "PlayServer",
 			document = tostring(game.PlaceId),
 			project = tostring(game.GameId),
 			data_model = "DataModel",
@@ -828,7 +844,9 @@ connect = function()
 		client = nil
 		task.delay(2, function()
 			if reconnectEnabled and not client then
-				connect()
+					if RunService:IsEdit() or RunService:IsServer() then
+						connect()
+					end
 			end
 		end)
 	end)

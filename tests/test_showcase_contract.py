@@ -15,9 +15,11 @@ def test_live_smoke_runner_has_protocol_probe_and_diagnostics() -> None:
     assert '"roblox_get_audit_log"' in source
     assert '"roblox_start_stop_play"' in source
     assert '"roblox_save_place"' in source
-    assert '"checks": ["schema", "dry_run", "play", "save"' in source
+    assert 'checks = ["schema", "dry_run", "play", "save"]' in source
     assert "--launch-studio" in source
     assert "--install-plugin" in source
+    assert "DCC_MCP_ROBLOX_DEFAULT_PACKAGE" in source
+    assert "DCC_MCP_ROBLOX_EXPECT_GAME" in source
     assert "smoke stage" in source
     assert "adapter_stderr" in source
 
@@ -31,6 +33,9 @@ def test_ci_protocol_smoke_is_registered() -> None:
     assert "workflow_dispatch" in live_workflow
     assert "roblox-studio" in live_workflow
     assert "--launch-studio --install-plugin" in live_workflow
+    assert "Reset runner Studio" in live_workflow
+    assert "DCC_MCP_ROBLOX_DEFAULT_PACKAGE" in live_workflow
+    assert "DCC_MCP_ROBLOX_EXPECT_GAME" in live_workflow
     assert "upload-artifact" in live_workflow
 
 

@@ -11,3 +11,4 @@ dist/
 .vscode/
 Thumbs.db
 plugin/build/
+artifacts/*.lock
