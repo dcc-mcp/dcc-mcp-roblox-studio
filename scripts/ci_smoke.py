@@ -21,6 +21,7 @@ def free_port() -> int:
 
 
 async def fake_studio(websocket: Any) -> None:
+    is_running = False
     await websocket.send(
         json.dumps(
             {
@@ -43,8 +44,13 @@ async def fake_studio(websocket: Any) -> None:
         method = message.get("method")
         if method == "roblox.scene_transaction":
             result = {"dry_run": True, "valid": True, "action": "scene_transaction", "count": 1}
+        elif method == "roblox.start_stop_play":
+            is_running = message.get("params", {}).get("action") == "start"
+            result = {"action": "start" if is_running else "stop"}
         elif method == "roblox.get_studio_state":
-            result = {"name": "Fake Roblox Studio", "is_edit": True, "is_running": False}
+            result = {"name": "Fake Roblox Studio", "is_edit": not is_running, "is_running": is_running}
+        elif method == "roblox.save_place":
+            result = {"saved": True, "note": message.get("params", {}).get("note")}
         else:
             result = {}
         await websocket.send(
