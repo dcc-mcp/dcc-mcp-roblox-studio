@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from dcc_mcp_roblox_studio.official_mcp import official_environment_diagnostics
+
 ROOT = Path(__file__).parents[1]
 
 
@@ -167,8 +169,24 @@ def locate_studio() -> Path:
         program_files = os.environ.get(variable)
         if program_files:
             version_roots.append(Path(program_files) / "Roblox" / "Versions")
+    # GitHub Actions service accounts may not inherit the interactive user's
+    # ProgramFiles variables. Keep the documented Windows install roots as a
+    # deterministic fallback, including the path used by the self-hosted
+    # roblox-studio runner.
+    version_roots.extend(
+        [
+            Path(r"C:\Program Files\Roblox\Versions"),
+            Path(r"C:\Program Files (x86)\Roblox\Versions"),
+        ]
+    )
     candidates = sorted(
-        {candidate for versions in version_roots for candidate in versions.glob("*/RobloxStudioBeta.exe")},
+        {
+            candidate
+            for versions in version_roots
+            if versions.is_dir()
+            for candidate in versions.glob("*/RobloxStudioBeta.exe")
+            if candidate.is_file()
+        },
         key=lambda path: path.stat().st_mtime,
     )
     if not candidates:
@@ -262,6 +280,7 @@ def write_diagnostics(
             "official_command": os.environ.get("DCC_MCP_ROBLOX_OFFICIAL_MCP"),
             "expected_game": os.environ.get("DCC_MCP_ROBLOX_EXPECT_GAME"),
         },
+        "official_profile": official_environment_diagnostics(),
         "process_snapshot": process_snapshot(),
         "studio_logs": recent_studio_logs(),
     }

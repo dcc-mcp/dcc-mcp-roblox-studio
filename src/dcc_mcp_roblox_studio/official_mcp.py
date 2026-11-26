@@ -66,6 +66,85 @@ def _launcher_path(command: Optional[str]) -> Optional[Path]:
     return candidate if candidate.is_file() else None
 
 
+def _launcher_binary(command: Optional[str]) -> Optional[Path]:
+    """Resolve the executable behind Roblox's Windows batch launcher."""
+    launcher = _launcher_path(command)
+    if launcher is None:
+        return None
+    if launcher.suffix.lower() not in {".bat", ".cmd"}:
+        return launcher
+    try:
+        text = launcher.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    candidates = re.findall(r'"([^"\r\n]*StudioMCP\.exe)"', text, flags=re.IGNORECASE)
+    for value in candidates:
+        candidate = Path(value).expanduser()
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _file_summary(path: Path) -> Dict[str, Any]:
+    """Return metadata for a local support file without exposing its contents."""
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        return {"path": str(path), "exists": False, "error": str(exc)}
+    return {"path": str(path), "exists": True, "size": stat.st_size}
+
+
+def official_environment_diagnostics(command: Optional[str] = None) -> Dict[str, Any]:
+    """Collect safe, local diagnostics for the installed official MCP launcher."""
+    local_app_data = os.environ.get("LOCALAPPDATA", "")
+    roblox_root = Path(local_app_data) / "Roblox" if local_app_data else Path()
+    client_settings = roblox_root / "ClientSettings" / "ClientAppSettings.json"
+    studio_settings = roblox_root / "ClientSettings" / "StudioAppSettings.json"
+    auth_token = roblox_root / "StudioMCP" / "auth.token"
+    result: Dict[str, Any] = {
+        "client_settings": _file_summary(client_settings),
+        "studio_settings": _file_summary(studio_settings),
+        "auth_token": _file_summary(auth_token),
+    }
+    if auth_token.is_file():
+        try:
+            result["auth_token"]["length"] = len(auth_token.read_bytes())
+        except OSError as exc:
+            result["auth_token"]["read_error"] = str(exc)
+
+    if client_settings.is_file():
+        try:
+            settings = json.loads(client_settings.read_text(encoding="utf-8"))
+            result["client_settings"]["mcp_flags"] = {
+                str(key): value for key, value in settings.items() if str(key).startswith("FFlagStudioMCP")
+            }
+        except (OSError, json.JSONDecodeError) as exc:
+            result["client_settings"]["parse_error"] = str(exc)
+
+    binary = _launcher_binary(command or default_official_command())
+    result["launcher_binary"] = str(binary) if binary else None
+    if binary is None or binary.stem.lower() != "studiomcp":
+        return result
+    try:
+        completed = subprocess.run(
+            [str(binary), "--print-flags"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            check=False,
+        )
+        result["launcher_flags"] = {
+            "returncode": completed.returncode,
+            "stdout": _redact(completed.stdout[-6000:]),
+            "stderr": _redact(completed.stderr[-2000:]),
+        }
+    except (OSError, subprocess.SubprocessError) as exc:
+        result["launcher_flags"] = {"error": str(exc)}
+    return result
+
+
 class OfficialMcpProxy:
     """Serialize MCP requests to the official StudioMCP stdio process.
 
@@ -195,6 +274,7 @@ class OfficialMcpProxy:
                 "returncode": self._process.poll() if self._process is not None else None,
                 "stderr": self._stderr_text(),
                 "last_error": self._last_error,
+                "environment": official_environment_diagnostics(self.command),
             }
             if not probe:
                 return result

@@ -46,6 +46,9 @@ def test_ci_protocol_smoke_is_registered() -> None:
     assert "DCC_MCP_ROBLOX_AUTO_STOP_AFTER" in live_workflow
     assert "DCC_MCP_ROBLOX_EXPECT_GAME" in live_workflow
     assert "--enable-official-mcp" in live_workflow
+    assert "Resolve Studio installation" in live_workflow
+    assert "Capture official MCP profile" in live_workflow
+    assert "live-studio-profile.json" in live_workflow
     assert "live-studio-diagnostics" in live_workflow
     assert "upload-artifact" in live_workflow
 

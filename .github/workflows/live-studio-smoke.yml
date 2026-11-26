@@ -50,6 +50,25 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
+      - name: Resolve Studio installation
+        shell: pwsh
+        run: |
+          $studio = & $env:DCC_MCP_PYTHON -c "from scripts.live_smoke import locate_studio; print(locate_studio())"
+          if ($LASTEXITCODE -ne 0 -or -not $studio) {
+            throw "Roblox Studio could not be located"
+          }
+          $studio = $studio | Select-Object -Last 1
+          Write-Host "Using Roblox Studio at $studio"
+          "ROBLOX_STUDIO_EXE=$studio" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Capture official MCP profile
+        shell: pwsh
+        run: |
+          $profilePath = Join-Path $env:GITHUB_WORKSPACE "live-studio-profile.json"
+          $json = & $env:DCC_MCP_PYTHON -c "import json; from dcc_mcp_roblox_studio.official_mcp import official_environment_diagnostics; print(json.dumps(official_environment_diagnostics(), indent=2, sort_keys=True))"
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+          $json | Set-Content -Path $profilePath -Encoding utf8
       - name: Reset runner Studio
         shell: pwsh
         run: |
@@ -87,6 +106,7 @@ jobs:
           path: |
             live-studio-smoke.log
             live-studio-diagnostics
+            live-studio-profile.json
           if-no-files-found: warn
       - name: Cleanup runner Studio
         if: always()
