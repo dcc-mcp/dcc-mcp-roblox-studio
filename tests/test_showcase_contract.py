@@ -13,6 +13,14 @@ def test_live_smoke_runner_has_safe_read_only_probe() -> None:
     assert '"dry_run": True' in source
     assert '"roblox_wait_for_event"' in source
     assert '"roblox_get_audit_log"' in source
+    assert "smoke stage" in source
+    assert "adapter_stderr" in source
+
+
+def test_ci_protocol_smoke_is_registered() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "protocol-smoke" in workflow
+    assert "python scripts/ci_smoke.py" in workflow
 
 
 def test_playable_showcase_contract_and_asset_attribution_exist() -> None:
