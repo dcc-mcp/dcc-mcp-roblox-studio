@@ -159,13 +159,21 @@ def locate_studio() -> Path:
         raise RuntimeError(f"ROBLOX_STUDIO_EXE does not exist: {executable}")
     if os.name != "nt":
         raise RuntimeError("automatic Studio launch is supported on Windows only")
+    version_roots = []
     local_app_data = os.environ.get("LOCALAPPDATA")
-    if not local_app_data:
-        raise RuntimeError("LOCALAPPDATA is unavailable, set ROBLOX_STUDIO_EXE")
-    versions = Path(local_app_data) / "Roblox" / "Versions"
-    candidates = sorted(versions.glob("*/RobloxStudioBeta.exe"), key=lambda path: path.stat().st_mtime)
+    if local_app_data:
+        version_roots.append(Path(local_app_data) / "Roblox" / "Versions")
+    for variable in ("ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"):
+        program_files = os.environ.get(variable)
+        if program_files:
+            version_roots.append(Path(program_files) / "Roblox" / "Versions")
+    candidates = sorted(
+        {candidate for versions in version_roots for candidate in versions.glob("*/RobloxStudioBeta.exe")},
+        key=lambda path: path.stat().st_mtime,
+    )
     if not candidates:
-        raise RuntimeError(f"RobloxStudioBeta.exe was not found under {versions}")
+        locations = ", ".join(str(root) for root in version_roots)
+        raise RuntimeError(f"RobloxStudioBeta.exe was not found under {locations}")
     return candidates[-1]
 
 
