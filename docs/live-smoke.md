@@ -1,5 +1,16 @@
 # Live smoke test
 
+For a repeatable read-only MCP verification, run the bundled smoke runner
+after the adapter and plugin are connected:
+
+```powershell
+python scripts/live_smoke.py
+```
+
+The runner checks the real stdio MCP entry point, Studio discovery, the `Part`
+schema, transaction dry-run validation, skills discovery and loading, bounded
+event waiting, and audit entries. It creates no Studio instances.
+
 ## Prerequisites
 
 - Roblox Studio is installed and a place is open.

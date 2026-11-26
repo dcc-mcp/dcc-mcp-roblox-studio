@@ -368,7 +368,7 @@ TOOLS: List[Dict[str, Any]] = [
     ),
     _tool(
         "roblox_start_stop_play",
-        "Start or stop Studio playtesting through StudioService.",
+        "Start or stop Studio playtesting through StudioTestService.",
         {"action": {"type": "string", "enum": ["start", "stop"]}, **_TARGET_PROPERTIES},
         required=["action"],
         method="roblox.start_stop_play",
