@@ -11,6 +11,11 @@ The runner checks the real stdio MCP entry point, Studio discovery, the `Part`
 schema, transaction dry-run validation, skills discovery and loading, bounded
 event waiting, and audit entries. It creates no Studio instances.
 
+CI runs the same checks against a protocol-level fake Studio plugin with
+`python scripts/ci_smoke.py`. This validates adapter startup, WebSocket hello,
+stdio MCP routing, and failure boundaries without requiring a desktop Studio
+session. The live runner remains available for validating the real plugin.
+
 ## Prerequisites
 
 - Roblox Studio is installed and a place is open.
