@@ -1,7 +1,7 @@
 # Live smoke test
 
-For a repeatable read-only MCP verification, run the bundled smoke runner
-after the adapter and plugin are connected:
+For a repeatable MCP verification, run the bundled smoke runner after the
+adapter and plugin are connected:
 
 ```powershell
 python scripts/live_smoke.py
@@ -22,6 +22,9 @@ python scripts/live_smoke.py --launch-studio --install-plugin
 Set `ROBLOX_STUDIO_PLACE` to open a specific local place. Set
 `ROBLOX_STUDIO_EXE` when Studio is installed outside the standard Roblox path.
 Set `DCC_MCP_ROBLOX_SMOKE_CLOSE_STUDIO=1` to close the process after the run.
+The default bridge port is `9001`, which matches the bundled plugin. Set
+`DCC_MCP_ROBLOX_SMOKE_PORT` only when the plugin bundle is changed to use the
+same port.
 The command reports the launch PID, executable, place, plugin path, failing
 stage, adapter return code, and adapter stderr when startup or a capability
 check fails.
@@ -29,20 +32,25 @@ check fails.
 CI runs the same checks against a protocol-level fake Studio plugin with
 `python scripts/ci_smoke.py`. This validates adapter startup, WebSocket hello,
 stdio MCP routing, and failure boundaries without requiring a desktop Studio
-session. The live runner remains available for validating the real plugin.
+session. A separate `workflow_dispatch` workflow runs the live runner on a
+self-hosted Windows runner labelled `roblox-studio`, where Studio can use an
+interactive desktop. It uploads the smoke log on every run.
 
 ## Prerequisites
 
-- Roblox Studio is installed and a place is open.
+- Roblox Studio is installed and the runner has an interactive desktop.
 - HTTP requests are enabled for the local plugin.
 - Python 3.9 or newer is available.
 
 ## Steps
 
 1. Install the adapter in a virtual environment with `pip install -e ".[dev]"`.
-2. Start `dcc-mcp-roblox-studio --ws-port 9001 --enable-official-mcp`.
-3. Copy `plugin/RobloxStudioDccMcpPlugin.rbxmx` into the Roblox Studio local
-   Plugins folder and restart Studio.
+2. The automatic mode starts the adapter on port `9001`, installs the bundled
+   plugin, and launches Studio with `--launch-studio --install-plugin`.
+3. For manual mode, start `dcc-mcp-roblox-studio --ws-port 9001
+   --enable-official-mcp`, then copy
+   `plugin/RobloxStudioDccMcpPlugin.rbxmx` into the Roblox Studio local Plugins
+   folder and restart Studio.
 4. Confirm the plugin connects to `ws://127.0.0.1:9001`.
 5. Call `roblox_list_studios` and select a returned `studio_id`.
 6. Call `roblox_get_studio_state`, `roblox_search_game_tree`, and
