@@ -8,8 +8,23 @@ python scripts/live_smoke.py
 ```
 
 The runner checks the real stdio MCP entry point, Studio discovery, the `Part`
-schema, transaction dry-run validation, skills discovery and loading, bounded
-event waiting, and audit entries. It creates no Studio instances.
+schema, transaction dry-run validation, Play start and stop, Save, skills
+discovery and loading, bounded event waiting, and audit entries. The transaction
+probe remains dry-run, while Play and Save exercise the connected place.
+
+On Windows, the runner can install the bundled plugin and launch Studio without
+a manual connection:
+
+```powershell
+python scripts/live_smoke.py --launch-studio --install-plugin
+```
+
+Set `ROBLOX_STUDIO_PLACE` to open a specific local place. Set
+`ROBLOX_STUDIO_EXE` when Studio is installed outside the standard Roblox path.
+Set `DCC_MCP_ROBLOX_SMOKE_CLOSE_STUDIO=1` to close the process after the run.
+The command reports the launch PID, executable, place, plugin path, failing
+stage, adapter return code, and adapter stderr when startup or a capability
+check fails.
 
 CI runs the same checks against a protocol-level fake Studio plugin with
 `python scripts/ci_smoke.py`. This validates adapter startup, WebSocket hello,
