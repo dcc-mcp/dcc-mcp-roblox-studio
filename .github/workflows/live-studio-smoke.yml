@@ -25,12 +25,31 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
+      - name: Prepare Python
+        shell: pwsh
+        run: |
+          $uv = Get-Command uv.exe -ErrorAction SilentlyContinue
+          if (-not $uv) {
+            throw "uv is required on the roblox-studio runner"
+          }
+          $venv = Join-Path $env:GITHUB_WORKSPACE ".venv"
+          & $uv.Source venv --python 3.12 $venv
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+          $python = Join-Path $venv "Scripts\python.exe"
+          if (-not (Test-Path $python)) {
+            throw "The managed Python environment was not created at $python"
+          }
+          "DCC_MCP_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Install adapter
         shell: pwsh
-        run: python -m pip install -e ".[dev]"
+        run: |
+          $uv = (Get-Command uv.exe).Source
+          & $uv pip install --python $env:DCC_MCP_PYTHON -e ".[dev]"
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
       - name: Reset runner Studio
         shell: pwsh
         run: |
@@ -55,7 +74,7 @@ jobs:
           DCC_MCP_ROBLOX_DIAGNOSTIC_DIR: live-studio-diagnostics
         run: |
           $logPath = Join-Path $env:GITHUB_WORKSPACE "live-studio-smoke.log"
-          python scripts/live_smoke.py --launch-studio --install-plugin --enable-official-mcp --diagnostic-dir live-studio-diagnostics 2>&1 | Tee-Object -FilePath $logPath
+          & $env:DCC_MCP_PYTHON scripts/live_smoke.py --launch-studio --install-plugin --enable-official-mcp --diagnostic-dir live-studio-diagnostics 2>&1 | Tee-Object -FilePath $logPath
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
